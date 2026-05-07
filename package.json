@@ -1,0 +1,25 @@
+{
+  "name": "atlas-ia",
+  "version": "1.0.0",
+  "description": "Sistema de memória e desenvolvimento da IA ATLAS",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlexConradoQ/atlas-ia.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/AlexConradoQ/atlas-ia/issues"
+  },
+  "homepage": "https://github.com/AlexConradoQ/atlas-ia#readme",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "dotenv": "^17.4.2"
+  }
+}
