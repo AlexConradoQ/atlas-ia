@@ -1,6 +1,6 @@
 
 
-# 08/05/2026, 00:57:12
+# 08/05/2026, 20:36:19
 
 
 AGENTE LITE - ANÁLISE LOCAL
@@ -24,9 +24,15 @@ Arquivos importantes:
 - 03 - Conhecimento\Tecnologias Base.md
 - 04 - Prompts\Prompt Principal.md
 - 05 - Logs\agente-atlas.md
+- 05 - Logs\agente-lite-atlas.md
 - 05 - Logs\analise-atlas.md
 - 05 - Logs\conversa.md
 - 05 - Logs\roadmap-atlas.md
+- core\ai.js
+- core\commands.js
+- core\files.js
+- core\logs.js
+- core\memory.js
 - interface\index.html
 - interface\script.js
 - interface\style.css
