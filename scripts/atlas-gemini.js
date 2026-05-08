@@ -2,7 +2,14 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 import readline from "readline";
+
 import { salvarLog } from "../core/logs.js";
+
+import {
+    listarArquivosRecursivo,
+    lerArquivoProjeto,
+    listarProjetos
+} from "../core/files.js";
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -21,12 +28,6 @@ const pastasMemoria = [
     "03 - Conhecimento",
     "04 - Prompts",
     "05 - Logs"
-];
-
-const ignorarPastas = [
-    "node_modules",
-    ".git",
-    ".obsidian"
 ];
 
 function esperar(ms) {
@@ -141,63 +142,6 @@ ${resposta}
         fs.appendFileSync(caminhoLog, conteudo, "utf8");
     } catch {
         console.log("Erro ao salvar conversa.");
-    }
-}
-
-function listarArquivosRecursivo(caminhoPasta, prefixo = "") {
-    let lista = [];
-
-    if (!fs.existsSync(caminhoPasta)) return lista;
-
-    const itens = fs.readdirSync(caminhoPasta, { withFileTypes: true });
-
-    for (const item of itens) {
-        if (ignorarPastas.includes(item.name)) continue;
-
-        const caminhoCompleto = path.join(caminhoPasta, item.name);
-        const caminhoRelativo = path.join(prefixo, item.name);
-
-        if (item.isDirectory()) {
-            lista.push(`${caminhoRelativo}/`);
-            lista = lista.concat(listarArquivosRecursivo(caminhoCompleto, caminhoRelativo));
-        } else {
-            lista.push(caminhoRelativo);
-        }
-    }
-
-    return lista;
-}
-
-function lerArquivoProjeto(caminhoRelativo) {
-    try {
-        const caminhoSeguro = path.normalize(caminhoRelativo);
-
-        if (caminhoSeguro.includes("..")) return "Caminho inválido.";
-
-        const caminhoArquivo = path.join(process.cwd(), caminhoSeguro);
-
-        if (!fs.existsSync(caminhoArquivo)) return "Arquivo não encontrado.";
-
-        const stats = fs.statSync(caminhoArquivo);
-
-        if (stats.isDirectory()) return "Esse caminho é uma pasta.";
-        if (stats.size > 50000) return "Arquivo muito grande para leitura direta.";
-
-        return fs.readFileSync(caminhoArquivo, "utf8");
-    } catch {
-        return "Erro ao ler arquivo.";
-    }
-}
-
-function listarProjetos() {
-    try {
-        const pastaProjetos = path.join(process.cwd(), "02 - Projetos");
-
-        return fs
-            .readdirSync(pastaProjetos)
-            .filter(arquivo => arquivo.endsWith(".md"));
-    } catch {
-        return [];
     }
 }
 

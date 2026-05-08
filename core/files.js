@@ -1,49 +1,67 @@
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
 
-function arquivoExiste(caminho) {
-  return fs.existsSync(caminho);
+export const ignorarPastas = [
+    "node_modules",
+    ".git",
+    ".obsidian"
+];
+
+export function listarArquivosRecursivo(caminhoPasta, prefixo = "") {
+    let lista = [];
+
+    if (!fs.existsSync(caminhoPasta)) return lista;
+
+    const itens = fs.readdirSync(caminhoPasta, { withFileTypes: true });
+
+    for (const item of itens) {
+        if (ignorarPastas.includes(item.name)) continue;
+
+        const caminhoCompleto = path.join(caminhoPasta, item.name);
+        const caminhoRelativo = path.join(prefixo, item.name);
+
+        if (item.isDirectory()) {
+            lista.push(`${caminhoRelativo}/`);
+            lista = lista.concat(
+                listarArquivosRecursivo(caminhoCompleto, caminhoRelativo)
+            );
+        } else {
+            lista.push(caminhoRelativo);
+        }
+    }
+
+    return lista;
 }
 
-function lerArquivo(caminho) {
-  if (!arquivoExiste(caminho)) {
-    return null;
-  }
+export function lerArquivoProjeto(caminhoRelativo) {
+    try {
+        const caminhoSeguro = path.normalize(caminhoRelativo);
 
-  return fs.readFileSync(caminho, "utf8");
+        if (caminhoSeguro.includes("..")) return "Caminho inválido.";
+
+        const caminhoArquivo = path.join(process.cwd(), caminhoSeguro);
+
+        if (!fs.existsSync(caminhoArquivo)) return "Arquivo não encontrado.";
+
+        const stats = fs.statSync(caminhoArquivo);
+
+        if (stats.isDirectory()) return "Esse caminho é uma pasta.";
+        if (stats.size > 50000) return "Arquivo muito grande para leitura direta.";
+
+        return fs.readFileSync(caminhoArquivo, "utf8");
+    } catch {
+        return "Erro ao ler arquivo.";
+    }
 }
 
-function salvarArquivoSeguro(caminho, conteudo) {
-  const backup = `${caminho}.backup`;
+export function listarProjetos() {
+    try {
+        const pastaProjetos = path.join(process.cwd(), "02 - Projetos");
 
-  if (arquivoExiste(caminho)) {
-    fs.copyFileSync(caminho, backup);
-  }
-
-  fs.writeFileSync(caminho, conteudo, "utf8");
-
-  return {
-    sucesso: true,
-    arquivo: caminho,
-    backup: arquivoExiste(backup)
-      ? backup
-      : null,
-  };
+        return fs
+            .readdirSync(pastaProjetos)
+            .filter(arquivo => arquivo.endsWith(".md"));
+    } catch {
+        return [];
+    }
 }
-
-function listarArquivos(pasta) {
-  if (!fs.existsSync(pasta)) {
-    return [];
-  }
-
-  return fs.readdirSync(pasta).map((item) =>
-    path.join(pasta, item)
-  );
-}
-
-module.exports = {
-  arquivoExiste,
-  lerArquivo,
-  salvarArquivoSeguro,
-  listarArquivos,
-};
