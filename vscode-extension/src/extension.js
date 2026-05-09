@@ -10,7 +10,8 @@ let model = null;
 let ultimoEditorTexto = null;
 
 function activate(context) {
-    console.log("ATLAS ativada com sucesso.");
+
+    console.log("ATLAS ativada.");
 
     const envPath = path.join(
         context.extensionPath,
@@ -22,77 +23,98 @@ function activate(context) {
         path: envPath
     });
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey =
+        process.env.GEMINI_API_KEY;
 
     if (apiKey) {
-        const genAI = new GoogleGenerativeAI(apiKey);
 
-        model = genAI.getGenerativeModel({
-            model: "gemini-2.5-flash"
-        });
+        const genAI =
+            new GoogleGenerativeAI(apiKey);
+
+        model =
+            genAI.getGenerativeModel({
+                model: "gemini-2.5-flash"
+            });
 
         console.log("Gemini conectado.");
-    } else {
-        console.log("GEMINI_API_KEY não encontrada.");
     }
 
     if (vscode.window.activeTextEditor) {
-        ultimoEditorTexto = vscode.window.activeTextEditor;
+        ultimoEditorTexto =
+            vscode.window.activeTextEditor;
     }
 
-    vscode.window.onDidChangeActiveTextEditor((editor) => {
-        if (
-            editor &&
-            editor.document &&
-            editor.document.uri.scheme === "file"
-        ) {
-            ultimoEditorTexto = editor;
-        }
-    });
+    vscode.window.onDidChangeActiveTextEditor(
+        (editor) => {
 
-    const disposable = vscode.commands.registerCommand(
-        "atlas.openPanel",
-        function () {
-            const panel = vscode.window.createWebviewPanel(
-                "atlasPanel",
-                "ATLAS",
-                vscode.ViewColumn.One,
-                {
-                    enableScripts: true
-                }
-            );
-
-            panel.webview.html = getWebviewContent();
-
-            panel.webview.onDidReceiveMessage(
-                async (message) => {
-                    if (message.command === "enviar") {
-                        const resposta = await gerarResposta(
-                            message.texto
-                        );
-
-                        panel.webview.postMessage({
-                            command: "resposta",
-                            texto: resposta
-                        });
-                    }
-                }
-            );
+            if (
+                editor &&
+                editor.document &&
+                editor.document.uri.scheme === "file"
+            ) {
+                ultimoEditorTexto = editor;
+            }
         }
     );
+
+    const disposable =
+        vscode.commands.registerCommand(
+            "atlas.openPanel",
+            function () {
+
+                const panel =
+                    vscode.window.createWebviewPanel(
+                        "atlasPanel",
+                        "ATLAS",
+                        vscode.ViewColumn.One,
+                        {
+                            enableScripts: true
+                        }
+                    );
+
+                panel.webview.html =
+                    getWebviewContent();
+
+                panel.webview.onDidReceiveMessage(
+                    async (message) => {
+
+                        if (
+                            message.command === "enviar"
+                        ) {
+
+                            const resposta =
+                                await gerarResposta(
+                                    message.texto
+                                );
+
+                            panel.webview.postMessage({
+                                command: "resposta",
+                                texto: resposta
+                            });
+                        }
+                    }
+                );
+            }
+        );
 
     context.subscriptions.push(disposable);
 }
 
+function deactivate() {}
+
 function obterEditor() {
-    const editorAtual = vscode.window.activeTextEditor;
+
+    const editorAtual =
+        vscode.window.activeTextEditor;
 
     if (
         editorAtual &&
         editorAtual.document &&
         editorAtual.document.uri.scheme === "file"
     ) {
-        ultimoEditorTexto = editorAtual;
+        ultimoEditorTexto =
+            editorAtual;
+
         return editorAtual;
     }
 
@@ -100,15 +122,18 @@ function obterEditor() {
 }
 
 function obterSelecaoAtual() {
-    const editor = obterEditor();
+
+    const editor =
+        obterEditor();
 
     if (!editor) {
         return null;
     }
 
-    const textoSelecionado = editor.document.getText(
-        editor.selection
-    );
+    const textoSelecionado =
+        editor.document.getText(
+            editor.selection
+        );
 
     if (!textoSelecionado.trim()) {
         return null;
@@ -121,40 +146,46 @@ function obterSelecaoAtual() {
 }
 
 async function chamarGemini(prompt) {
+
     if (!model) {
+
         return `
 Gemini não conectado.
 
-Verifique o arquivo .env na raiz do projeto ATLAS-IA:
-
-GEMINI_API_KEY=sua_chave_aqui
+Verifique o .env:
+GEMINI_API_KEY=sua_chave
 `;
     }
 
     try {
-        const resultado = await model.generateContent(prompt);
-        const resposta = await resultado.response;
+
+        const resultado =
+            await model.generateContent(prompt);
+
+        const resposta =
+            await resultado.response;
 
         return resposta.text();
+
     } catch (erro) {
-        console.log("Erro Gemini:", erro);
+
+        console.log(erro);
 
         return `
 Erro ao acessar Gemini.
-
-Possíveis causas:
-- limite da API
-- chave inválida
-- internet instável
-- modelo indisponível
 `;
     }
 }
 
 async function gerarResposta(texto) {
-    const comando = texto.trim();
+
+    const comando =
+        texto.trim();
+
+    // HELP
 
     if (comando === "/help") {
+
         return `
 COMANDOS DA ATLAS
 
@@ -163,25 +194,34 @@ COMANDOS DA ATLAS
 /plugins
 /arquivo-atual
 /selecao
+
 /ia pergunta
 /ia-arquivo pergunta
 /ia-selecao pergunta
+
+/gerar-codigo prompt
 `;
     }
 
+    // STATUS
+
     if (comando === "/status") {
+
         return `
 STATUS DA ATLAS
 
 - Painel ativo
 - VS Code conectado
 - Gemini conectado
-- IA contextual por arquivo ativa
-- IA contextual por seleção ativa
+- IA contextual
+- Gerador de código ativo
 `;
     }
 
+    // PLUGINS
+
     if (comando === "/plugins") {
+
         return `
 PLUGINS
 
@@ -191,14 +231,19 @@ PLUGINS
 `;
     }
 
+    // ARQUIVO
+
     if (comando === "/arquivo-atual") {
-        const editor = obterEditor();
+
+        const editor =
+            obterEditor();
 
         if (!editor) {
             return "Nenhum arquivo aberto.";
         }
 
-        const documento = editor.document;
+        const documento =
+            editor.document;
 
         return `
 ARQUIVO ATUAL
@@ -214,8 +259,12 @@ ${documento.lineCount}
 `;
     }
 
+    // SELEÇÃO
+
     if (comando === "/selecao") {
-        const dadosSelecao = obterSelecaoAtual();
+
+        const dadosSelecao =
+            obterSelecaoAtual();
 
         if (!dadosSelecao) {
             return "Nenhum texto selecionado.";
@@ -228,27 +277,45 @@ ${dadosSelecao.textoSelecionado}
 `;
     }
 
+    // IA NORMAL
+
     if (comando.startsWith("/ia ")) {
-        const prompt = comando.replace("/ia ", "").trim();
+
+        const prompt =
+            comando.replace("/ia ", "");
 
         return await chamarGemini(prompt);
     }
 
-    if (comando.startsWith("/ia-arquivo ")) {
-        const editor = obterEditor();
+    // IA ARQUIVO
+
+    if (
+        comando.startsWith("/ia-arquivo ")
+    ) {
+
+        const editor =
+            obterEditor();
 
         if (!editor) {
             return "Nenhum arquivo aberto.";
         }
 
-        const documento = editor.document;
-        const codigo = documento.getText();
-        const pergunta = comando.replace("/ia-arquivo ", "").trim();
+        const documento =
+            editor.document;
+
+        const codigo =
+            documento.getText();
+
+        const pergunta =
+            comando.replace(
+                "/ia-arquivo ",
+                ""
+            );
 
         const prompt = `
-Você é a ATLAS, uma IA assistente de desenvolvimento.
+Você é a IA ATLAS.
 
-Analise este arquivo com atenção.
+Analise este código:
 
 ARQUIVO:
 ${documento.fileName}
@@ -259,30 +326,44 @@ ${documento.languageId}
 CÓDIGO:
 ${codigo}
 
-PERGUNTA DO USUÁRIO:
+PERGUNTA:
 ${pergunta}
 
-Responda de forma técnica, clara e objetiva.
-Quando possível, indique melhorias práticas.
+Responda de forma técnica,
+objetiva e estratégica.
 `;
 
         return await chamarGemini(prompt);
     }
 
-    if (comando.startsWith("/ia-selecao ")) {
-        const dadosSelecao = obterSelecaoAtual();
+    // IA SELEÇÃO
+
+    if (
+        comando.startsWith(
+            "/ia-selecao "
+        )
+    ) {
+
+        const dadosSelecao =
+            obterSelecaoAtual();
 
         if (!dadosSelecao) {
             return "Nenhum texto selecionado.";
         }
 
-        const documento = dadosSelecao.editor.document;
-        const pergunta = comando.replace("/ia-selecao ", "").trim();
+        const documento =
+            dadosSelecao.editor.document;
+
+        const pergunta =
+            comando.replace(
+                "/ia-selecao ",
+                ""
+            );
 
         const prompt = `
-Você é a ATLAS, uma IA assistente de desenvolvimento.
+Você é a IA ATLAS.
 
-Analise apenas o trecho selecionado abaixo.
+Analise apenas este trecho.
 
 ARQUIVO:
 ${documento.fileName}
@@ -290,14 +371,51 @@ ${documento.fileName}
 LINGUAGEM:
 ${documento.languageId}
 
-TRECHO SELECIONADO:
+TRECHO:
 ${dadosSelecao.textoSelecionado}
 
-PERGUNTA DO USUÁRIO:
+PERGUNTA:
 ${pergunta}
 
-Responda de forma técnica, clara e objetiva.
-Se for código, explique a lógica e sugira melhorias se necessário.
+Explique a lógica
+e sugira melhorias.
+`;
+
+        return await chamarGemini(prompt);
+    }
+
+    // GERADOR DE CÓDIGO
+
+    if (
+        comando.startsWith(
+            "/gerar-codigo "
+        )
+    ) {
+
+        const promptUsuario =
+            comando.replace(
+                "/gerar-codigo ",
+                ""
+            );
+
+        const prompt = `
+Você é a IA ATLAS,
+especialista em engenharia
+de software.
+
+Gere código limpo,
+moderno, organizado
+e pronto para produção.
+
+REQUISIÇÃO:
+${promptUsuario}
+
+REGRAS:
+- explique o que o código faz
+- gere código completo
+- use boas práticas
+- organize bem
+- comente apenas o necessário
 `;
 
         return await chamarGemini(prompt);
@@ -308,13 +426,12 @@ ATLAS recebeu:
 
 ${texto}
 
-Use /help para ver os comandos disponíveis.
+Use /help
 `;
 }
 
-function deactivate() {}
-
 function getWebviewContent() {
+
     return `
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -323,10 +440,14 @@ function getWebviewContent() {
 <meta charset="UTF-8">
 
 <style>
+
 body {
+
     background: #050816;
     color: white;
+
     font-family: Arial;
+
     padding: 20px;
 }
 
@@ -335,45 +456,64 @@ h1 {
 }
 
 textarea {
+
     width: 100%;
-    height: 160px;
+    height: 180px;
+
     background: #111827;
     color: white;
+
     border: 1px solid #2a2a2a;
     border-radius: 10px;
+
     padding: 15px;
+
     resize: none;
 }
 
 button {
+
     margin-top: 15px;
+
     background: #2563eb;
     color: white;
+
     border: none;
     border-radius: 10px;
+
     padding: 12px 22px;
+
     cursor: pointer;
 }
 
 #resposta {
+
     margin-top: 25px;
+
     background: #111827;
+
     border: 1px solid #2a2a2a;
     border-radius: 10px;
+
     padding: 20px;
+
     white-space: pre-wrap;
 }
+
 </style>
 </head>
 
 <body>
+
 <h1>ATLAS</h1>
 
-<p>Painel inteligente da ATLAS.</p>
+<p>
+Painel inteligente da ATLAS.
+</p>
 
 <textarea
 id="input"
-placeholder="Digite um comando da ATLAS..."
+placeholder="Digite um comando..."
 ></textarea>
 
 <br>
@@ -387,10 +527,16 @@ ATLAS ONLINE
 </div>
 
 <script>
-const vscode = acquireVsCodeApi();
+
+const vscode =
+    acquireVsCodeApi();
 
 function enviar() {
-    const texto = document.getElementById("input").value;
+
+    const texto =
+        document.getElementById(
+            "input"
+        ).value;
 
     vscode.postMessage({
         command: "enviar",
@@ -398,13 +544,26 @@ function enviar() {
     });
 }
 
-window.addEventListener("message", event => {
-    const message = event.data;
+window.addEventListener(
+    "message",
+    event => {
 
-    if (message.command === "resposta") {
-        document.getElementById("resposta").textContent = message.texto;
+        const message =
+            event.data;
+
+        if (
+            message.command ===
+            "resposta"
+        ) {
+
+            document.getElementById(
+                "resposta"
+            ).textContent =
+                message.texto;
+        }
     }
-});
+);
+
 </script>
 
 </body>
