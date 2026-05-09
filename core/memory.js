@@ -1,44 +1,94 @@
-const path = require("path");
-const { lerArquivo, salvarArquivoSeguro } = require("./files");
+import fs from "fs";
+import path from "path";
 
-const CAMINHO_MEMORIA = path.join(
-  "01 - Memória",
-  "memoria-atlas.md"
-);
+export const pastasMemoria = [
+    "00 - Sistema",
+    "01 - Memória",
+    "02 - Projetos",
+    "03 - Conhecimento",
+    "04 - Prompts",
+    "05 - Logs"
+];
 
-function carregarMemoria() {
-  const memoria = lerArquivo(CAMINHO_MEMORIA);
+export function lerMarkdownRecursivo(caminhoPasta, nomePastaBase) {
 
-  if (!memoria) {
-    return "Nenhuma memória registrada ainda.";
-  }
+    let conteudoCompleto = "";
 
-  return memoria;
-}
+    if (!fs.existsSync(caminhoPasta)) {
+        return conteudoCompleto;
+    }
 
-function salvarMemoria(conteudo) {
-  return salvarArquivoSeguro(
-    CAMINHO_MEMORIA,
-    conteudo
-  );
-}
+    const itens = fs.readdirSync(
+        caminhoPasta,
+        { withFileTypes: true }
+    );
 
-function adicionarMemoria(novaInformacao) {
-  const memoriaAtual = carregarMemoria();
+    for (const item of itens) {
 
-  const novaMemoria = `
-${memoriaAtual}
+        const caminhoItem = path.join(
+            caminhoPasta,
+            item.name
+        );
 
-## Nova memória
+        if (item.isDirectory()) {
 
-${novaInformacao}
+            conteudoCompleto += lerMarkdownRecursivo(
+                caminhoItem,
+                nomePastaBase
+            );
+        }
+
+        if (
+            item.isFile() &&
+            item.name.endsWith(".md")
+        ) {
+
+            try {
+
+                const conteudo = fs.readFileSync(
+                    caminhoItem,
+                    "utf8"
+                );
+
+                conteudoCompleto += `
+
+========================
+ARQUIVO: ${item.name}
+PASTA: ${nomePastaBase}
+========================
+
+${conteudo}
+
 `;
 
-  return salvarMemoria(novaMemoria);
+            } catch {
+
+                console.log(
+                    `Erro ao ler: ${item.name}`
+                );
+            }
+        }
+    }
+
+    return conteudoCompleto;
 }
 
-module.exports = {
-  carregarMemoria,
-  salvarMemoria,
-  adicionarMemoria,
-};
+export function carregarMemoria() {
+
+    let memoriaCompleta = "";
+
+    for (const pasta of pastasMemoria) {
+
+        const caminhoPasta = path.join(
+            process.cwd(),
+            pasta
+        );
+
+        memoriaCompleta += lerMarkdownRecursivo(
+            caminhoPasta,
+            pasta
+        );
+    }
+
+    return memoriaCompleta;
+}

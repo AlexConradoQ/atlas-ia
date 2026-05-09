@@ -11,6 +11,11 @@ import {
     listarProjetos
 } from "../core/files.js";
 
+import {
+    carregarMemoria,
+    pastasMemoria
+} from "../core/memory.js";
+
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 dotenv.config();
@@ -20,15 +25,6 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
     model: "gemini-2.5-flash"
 });
-
-const pastasMemoria = [
-    "00 - Sistema",
-    "01 - Memória",
-    "02 - Projetos",
-    "03 - Conhecimento",
-    "04 - Prompts",
-    "05 - Logs"
-];
 
 function esperar(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -71,54 +67,6 @@ Tente novamente em alguns segundos.
     return `
 Não foi possível gerar resposta agora.
 `;
-}
-
-function lerMarkdownRecursivo(caminhoPasta, nomePastaBase) {
-    let conteudoCompleto = "";
-
-    if (!fs.existsSync(caminhoPasta)) return conteudoCompleto;
-
-    const itens = fs.readdirSync(caminhoPasta, { withFileTypes: true });
-
-    for (const item of itens) {
-        const caminhoItem = path.join(caminhoPasta, item.name);
-
-        if (item.isDirectory()) {
-            conteudoCompleto += lerMarkdownRecursivo(caminhoItem, nomePastaBase);
-        }
-
-        if (item.isFile() && item.name.endsWith(".md")) {
-            try {
-                const conteudo = fs.readFileSync(caminhoItem, "utf8");
-
-                conteudoCompleto += `
-
-========================
-ARQUIVO: ${item.name}
-PASTA: ${nomePastaBase}
-========================
-
-${conteudo}
-
-`;
-            } catch {
-                console.log(`Erro ao ler: ${item.name}`);
-            }
-        }
-    }
-
-    return conteudoCompleto;
-}
-
-function carregarMemoria() {
-    let memoriaCompleta = "";
-
-    for (const pasta of pastasMemoria) {
-        const caminhoPasta = path.join(process.cwd(), pasta);
-        memoriaCompleta += lerMarkdownRecursivo(caminhoPasta, pasta);
-    }
-
-    return memoriaCompleta;
 }
 
 function salvarConversa(usuario, resposta) {
