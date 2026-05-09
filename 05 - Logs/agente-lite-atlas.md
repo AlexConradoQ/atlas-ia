@@ -1,12 +1,17 @@
 
 
-# 08/05/2026, 20:36:19
+# 08/05/2026, 21:08:55
 
 
 AGENTE LITE - ANÁLISE LOCAL
 
 Visão geral:
-A ATLAS está estruturada como uma IA pessoal com memória em Obsidian, terminal inteligente, leitura de arquivos, comandos internos e base para integração com VS Code.
+A ATLAS está estruturada
+como uma IA pessoal
+com memória em Obsidian,
+terminal inteligente,
+leitura de arquivos
+e comandos internos.
 
 Projetos detectados:
 - atlas-status.md.md
@@ -42,28 +47,6 @@ Arquivos importantes:
 - scripts\atlas-gemini.editado.js
 - scripts\atlas-gemini.js
 - scripts\atlas-server.js
-
-Prioridades recomendadas:
-1. Estabilizar uso da API Gemini para evitar limite 429.
-2. Separar o código em módulos menores.
-3. Criar uma pasta "core" para memória, arquivos e comandos.
-4. Criar integração real com VS Code.
-5. Melhorar o atlas-server.js para suportar comandos como /projetos e /agente-lite.
-6. Preparar integração futura com ChatGPT e Cloud Code.
-7. Criar documentação técnica do projeto.
-
-Gargalos:
-- Gemini Free Tier limita comandos pesados.
-- O arquivo atlas-gemini.js está concentrando muitas funções.
-- A interface visual ainda depende do servidor separado.
-- O sistema de voz depende do navegador.
-
-Próximos passos:
-- Criar modo econômico definitivo.
-- Criar arquivos separados para comandos.
-- Criar extensão simples para VS Code.
-- Integrar ChatGPT como segundo cérebro.
-- Usar Cloud Code depois que o fluxo interno estiver estável.
 
 
 ==================================
