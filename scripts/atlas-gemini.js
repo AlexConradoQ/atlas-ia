@@ -19,7 +19,14 @@ import {
     gerarComRetry
 } from "../core/ai.js";
 
+import {
+    comandos,
+    comandoExiste,
+    listarComandos
+} from "../core/commands.js";
+
 function salvarConversa(usuario, resposta) {
+
     try {
 
         const caminhoLog = path.join(
@@ -72,41 +79,28 @@ function gerarStatusLocal() {
 STATUS LOCAL DA ATLAS
 
 Sistema:
-- ATLAS rodando no terminal do VS Code
-- Memória conectada ao Obsidian
-- Leitura de arquivos ativa
-- Modo agente disponível
-- Modo econômico disponível
+- Modularizada
+- IA separada
+- Memória separada
+- Logs separados
+- Arquivos separados
+- Obsidian conectado
 
-Pastas de memória:
+Pastas:
 ${pastasMemoria.map(
     pasta => `- ${pasta}`
 ).join("\n")}
 
-Projetos encontrados:
+Projetos:
 ${projetos.length
     ? projetos.map(
         p => `- ${p}`
     ).join("\n")
-    : "- Nenhum projeto encontrado"
+    : "- Nenhum projeto"
 }
 
-Arquivos mapeados:
-- Total aproximado:
-${arquivos.length}
-
-Comandos locais disponíveis:
-- /help
-- /status
-- /tree
-- /agente-lite
-
-Comandos com IA:
-- /analisar
-- /organizar
-- /agente
-- /analisar-arquivo caminho
-- /editar-arquivo caminho
+Arquivos:
+- ${arquivos.length}
 `;
 }
 
@@ -118,7 +112,7 @@ function gerarTreeLocal() {
         );
 
     return `
-ESTRUTURA DO PROJETO
+ESTRUTURA:
 
 ${arquivos
     .slice(0, 250)
@@ -129,23 +123,9 @@ ${arquivos
 function gerarHelp() {
 
     return `
-COMANDOS DA ATLAS
+COMANDOS DISPONÍVEIS
 
-Comandos locais:
-- /help
-- /status
-- /tree
-- /projetos
-- /arquivos
-- /ler caminho
-- /agente-lite
-
-Comandos IA:
-- /analisar
-- /organizar
-- /agente
-- /analisar-arquivo caminho
-- /editar-arquivo caminho
+${listarComandos().join("\n")}
 
 Digite:
 - sair
@@ -172,23 +152,12 @@ function executarAgenteLite() {
         );
 
     const relatorio = `
-AGENTE LITE - ANÁLISE LOCAL
+AGENTE LITE
 
-Visão geral:
-A ATLAS está estruturada
-como uma IA pessoal
-com memória em Obsidian,
-terminal inteligente,
-leitura de arquivos
-e comandos internos.
-
-Projetos detectados:
-${projetos.length
-    ? projetos.map(
-        p => `- ${p}`
-    ).join("\n")
-    : "- Nenhum projeto detectado"
-}
+Projetos:
+${projetos.map(
+    p => `- ${p}`
+).join("\n")}
 
 Arquivos importantes:
 ${principais
@@ -215,12 +184,7 @@ async function analisarArquivo(
         );
 
     const prompt = `
-Você é a ATLAS.
-
-Analise profundamente
-este arquivo:
-
-${caminhoArquivo}
+Analise este arquivo:
 
 ${conteudo}
 `;
@@ -240,13 +204,7 @@ async function editarArquivoIA(
         );
 
     const prompt = `
-Você é a ATLAS.
-
-Melhore este código
-mantendo compatibilidade.
-
-Retorne somente
-o código final.
+Melhore este código:
 
 ${conteudo}
 `;
@@ -270,38 +228,17 @@ async function executarAgente() {
         .join("\n");
 
     const prompt = `
-Você é a ATLAS
-em modo agente.
+Você é a ATLAS.
 
 MEMÓRIA:
-
 ${memoria}
 
 ARQUIVOS:
-
 ${arquivos}
 `;
 
     const resposta =
         await gerarComRetry(prompt);
-
-    if (
-        !resposta ||
-        resposta.includes(
-            "Não consegui acessar"
-        )
-    ) {
-
-        const fallback =
-            executarAgenteLite();
-
-        salvarLog(
-            "agente-atlas.md",
-            fallback
-        );
-
-        return fallback;
-    }
 
     salvarLog(
         "agente-atlas.md",
@@ -320,16 +257,6 @@ const rl =
 console.log(`
 ==============================
 ATLAS ONLINE
-==============================
-
-/help
-/status
-/tree
-/agente-lite
-/analisar
-/organizar
-/agente
-
 ==============================
 `);
 
@@ -353,6 +280,23 @@ async function conversar() {
 
             rl.close();
 
+            return;
+        }
+
+        if (
+            comando.startsWith("/")
+            &&
+            !comandoExiste(comando)
+        ) {
+
+            console.log(`
+ATLAS:
+
+Comando não encontrado.
+Use /help
+`);
+
+            conversar();
             return;
         }
 
@@ -507,12 +451,6 @@ ${conteudo.substring(
                     )
                     .trim();
 
-            console.log(`
-ATLAS:
-
-Analisando arquivo...
-`);
-
             const resposta =
                 await analisarArquivo(
                     caminhoArquivo
@@ -541,12 +479,6 @@ ${resposta}
                         ""
                     )
                     .trim();
-
-            console.log(`
-ATLAS:
-
-Editando arquivo...
-`);
 
             const codigoEditado =
                 await editarArquivoIA(
@@ -601,54 +533,22 @@ ${novoNome}
                         12000
                     );
 
-            const promptEspecial = `
-Você é a ATLAS.
-
-Analise esta memória:
-
-${memoriaAtual}
-`;
-
             const respostaIA =
                 await gerarComRetry(
-                    promptEspecial
+                    memoriaAtual
                 );
-
-            const respostaFinal =
-                respostaIA &&
-                !respostaIA.includes(
-                    "Não consegui acessar"
-                )
-                    ? respostaIA
-                    : executarAgenteLite();
 
             console.log(`
 ATLAS:
 
-${respostaFinal}
+${respostaIA}
 `);
-
-            const nomeArquivo =
-                comando === "/analisar"
-                    ? "analise-atlas.md"
-                    : "roadmap-atlas.md";
-
-            salvarLog(
-                nomeArquivo,
-                respostaFinal
-            );
 
             conversar();
             return;
         }
 
         if (comando === "/agente") {
-
-            console.log(`
-ATLAS:
-
-Modo agente iniciado...
-`);
 
             const resposta =
                 await executarAgente();
@@ -673,8 +573,6 @@ ${resposta}
                     );
 
             const prompt = `
-Você é a ATLAS.
-
 MEMÓRIA:
 ${memoriaAtual}
 
@@ -701,7 +599,7 @@ ${respostaIA}
         } catch (erro) {
 
             console.log(`
-Erro geral da ATLAS:
+Erro geral:
 `);
 
             console.log(erro);

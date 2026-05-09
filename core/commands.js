@@ -1,89 +1,31 @@
-const path = require("path");
+export const comandos = {
 
-const {
-  carregarMemoria,
-  adicionarMemoria,
-} = require("./memory");
+    "/help": true,
+    "/status": true,
+    "/tree": true,
+    "/agente-lite": true,
+    "/analisar": true,
+    "/organizar": true,
+    "/agente": true,
+    "/memoria": true,
+    "/projetos": true,
+    "/arquivos": true,
 
-const {
-  lerArquivo,
-} = require("./files");
+    "/ler": true,
+    "/analisar-arquivo": true,
+    "/editar-arquivo": true
+};
 
-const {
-  salvarLog,
-} = require("./logs");
+export function comandoExiste(comando) {
 
-const {
-  gerarRespostaLocal,
-} = require("./ai");
-
-async function executarComando(comando) {
-
-  if (comando === "/memoria") {
-    return carregarMemoria();
-  }
-
-  if (comando.startsWith("/lembrar ")) {
-
-    const texto = comando
-      .replace("/lembrar ", "")
-      .trim();
-
-    adicionarMemoria(texto);
-
-    return "Memória adicionada.";
-  }
-
-  if (comando.startsWith("/ler ")) {
-
-    const caminho = comando
-      .replace("/ler ", "")
-      .trim();
-
-    const conteudo = lerArquivo(caminho);
-
-    return conteudo || "Arquivo não encontrado.";
-  }
-
-  if (comando.startsWith("/agente-lite ")) {
-
-    const tarefa = comando
-      .replace("/agente-lite ", "")
-      .trim();
-
-    const resposta =
-      await gerarRespostaLocal(tarefa);
-
-    const caminhoLog = path.join(
-      "05 - Logs",
-      "agente-lite-atlas.md"
-    );
-
-    salvarLog(
-      caminhoLog,
-`
-# Relatório Agente Lite
-
-## Tarefa
-
-${tarefa}
-
-## Resultado
-
-${resposta}
-`
-    );
-
-    return `
-Relatório salvo em:
-
-${caminhoLog}
-`;
-  }
-
-  return gerarRespostaLocal(comando);
+    return Object.keys(comandos)
+        .some(cmd =>
+            comando === cmd ||
+            comando.startsWith(cmd + " ")
+        );
 }
 
-module.exports = {
-  executarComando,
-};
+export function listarComandos() {
+
+    return Object.keys(comandos);
+}
