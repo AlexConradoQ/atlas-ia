@@ -31,9 +31,7 @@ function activate(context) {
             model: "gemini-2.5-flash"
         });
 
-        console.log("Gemini conectado na extensão.");
-    } else {
-        console.log("GEMINI_API_KEY não encontrada.");
+        console.log("Gemini conectado.");
     }
 
     if (vscode.window.activeTextEditor) {
@@ -41,7 +39,7 @@ function activate(context) {
     }
 
     vscode.window.onDidChangeActiveTextEditor((editor) => {
-        if (editor && editor.document) {
+        if (editor) {
             ultimoEditorTexto = editor;
         }
     });
@@ -49,6 +47,7 @@ function activate(context) {
     const disposable = vscode.commands.registerCommand(
         "atlas.openPanel",
         function () {
+
             const panel = vscode.window.createWebviewPanel(
                 "atlasPanel",
                 "ATLAS",
@@ -60,67 +59,81 @@ function activate(context) {
 
             panel.webview.html = getWebviewContent();
 
-            panel.webview.onDidReceiveMessage(async (message) => {
-                if (message.command === "enviar") {
-                    const texto = message.texto;
-                    const resposta = await gerarResposta(texto);
+            panel.webview.onDidReceiveMessage(
+                async (message) => {
 
-                    panel.webview.postMessage({
-                        command: "resposta",
-                        texto: resposta
-                    });
+                    if (message.command === "enviar") {
+
+                        const resposta =
+                            await gerarResposta(message.texto);
+
+                        panel.webview.postMessage({
+                            command: "resposta",
+                            texto: resposta
+                        });
+                    }
                 }
-            });
+            );
         }
     );
 
     context.subscriptions.push(disposable);
 }
 
-function obterEditorDeCodigo() {
-    const editorAtivo = vscode.window.activeTextEditor;
+function obterEditor() {
+
+    const editorAtual =
+        vscode.window.activeTextEditor;
 
     if (
-        editorAtivo &&
-        editorAtivo.document &&
-        editorAtivo.document.uri.scheme === "file"
+        editorAtual &&
+        editorAtual.document &&
+        editorAtual.document.uri.scheme === "file"
     ) {
-        ultimoEditorTexto = editorAtivo;
-        return editorAtivo;
+        ultimoEditorTexto = editorAtual;
+        return editorAtual;
     }
 
     return ultimoEditorTexto;
 }
 
 async function gerarResposta(texto) {
+
     const comando = texto.trim();
 
+    // HELP
     if (comando === "/help") {
+
         return `
-COMANDOS
+COMANDOS DA ATLAS
 
 /help
 /status
 /plugins
 /arquivo-atual
 /selecao
-/ia sua pergunta
+/ia pergunta
+/ia-arquivo pergunta
 `;
     }
 
+    // STATUS
     if (comando === "/status") {
+
         return `
 STATUS DA ATLAS
 
-- Extensão ativa
-- Webview online
-- Backend Node.js ativo
-- VS Code integrado
-- Gemini: ${model ? "conectado" : "não conectado"}
+- Painel ativo
+- VS Code conectado
+- Gemini conectado
+- IA contextual ativa
+- Sistema operacional
 `;
     }
 
+    // PLUGINS
     if (comando === "/plugins") {
+
         return `
 PLUGINS
 
@@ -130,8 +143,10 @@ PLUGINS
 `;
     }
 
+    // ARQUIVO ATUAL
     if (comando === "/arquivo-atual") {
-        const editor = obterEditorDeCodigo();
+
+        const editor = obterEditor();
 
         if (!editor) {
             return "Nenhum arquivo aberto.";
@@ -153,16 +168,19 @@ ${documento.lineCount}
 `;
     }
 
+    // SELEÇÃO
     if (comando === "/selecao") {
-        const editor = obterEditorDeCodigo();
+
+        const editor = obterEditor();
 
         if (!editor) {
             return "Nenhum editor aberto.";
         }
 
-        const textoSelecionado = editor.document.getText(
-            editor.selection
-        );
+        const textoSelecionado =
+            editor.document.getText(
+                editor.selection
+            );
 
         if (!textoSelecionado.trim()) {
             return "Nenhum texto selecionado.";
@@ -175,36 +193,91 @@ ${textoSelecionado}
 `;
     }
 
+    // IA NORMAL
     if (comando.startsWith("/ia ")) {
+
         if (!model) {
-            return `
-Gemini não conectado.
-
-Verifique se existe um arquivo .env na raiz do projeto ATLAS-IA com:
-
-GEMINI_API_KEY=sua_chave_aqui
-`;
+            return "Gemini não conectado.";
         }
 
-        const prompt = comando.replace("/ia ", "").trim();
+        const prompt =
+            comando.replace("/ia ", "");
 
         try {
-            const resultado = await model.generateContent(prompt);
-            const resposta = await resultado.response;
+
+            const resultado =
+                await model.generateContent(prompt);
+
+            const resposta =
+                await resultado.response;
 
             return resposta.text();
+
         } catch (erro) {
-            console.log("Erro Gemini:", erro);
 
-            return `
-Erro ao acessar Gemini.
+            console.log(erro);
 
-Possíveis causas:
-- chave inválida
-- limite da API
-- internet/API instável
-- modelo indisponível
+            return "Erro ao acessar Gemini.";
+        }
+    }
+
+    // IA COM ARQUIVO
+    if (comando.startsWith("/ia-arquivo ")) {
+
+        if (!model) {
+            return "Gemini não conectado.";
+        }
+
+        const editor = obterEditor();
+
+        if (!editor) {
+            return "Nenhum arquivo aberto.";
+        }
+
+        const documento = editor.document;
+
+        const codigo =
+            documento.getText();
+
+        const pergunta =
+            comando.replace("/ia-arquivo ", "");
+
+        const prompt = `
+Você é a IA ATLAS.
+
+Analise este código:
+
+ARQUIVO:
+${documento.fileName}
+
+LINGUAGEM:
+${documento.languageId}
+
+CÓDIGO:
+${codigo}
+
+PERGUNTA:
+${pergunta}
+
+Responda de forma técnica,
+clara e objetiva.
 `;
+
+        try {
+
+            const resultado =
+                await model.generateContent(prompt);
+
+            const resposta =
+                await resultado.response;
+
+            return resposta.text();
+
+        } catch (erro) {
+
+            console.log(erro);
+
+            return "Erro ao analisar arquivo.";
         }
     }
 
@@ -218,87 +291,101 @@ ${texto}
 function deactivate() {}
 
 function getWebviewContent() {
+
     return `
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-br">
+
 <head>
-<meta charset="UTF-8" />
+<meta charset="UTF-8">
+
 <style>
+
 body {
-    background: #0b0b0f;
+    background: #050816;
     color: white;
     font-family: Arial;
-    padding: 24px;
-}
-
-.container {
-    max-width: 900px;
-    margin: auto;
+    padding: 20px;
 }
 
 h1 {
-    color: #7dd3fc;
+    color: #4cc2ff;
 }
 
 textarea {
+
     width: 100%;
-    height: 140px;
-    background: #18181b;
+    height: 160px;
+
+    background: #111827;
     color: white;
-    border: 1px solid #333;
+
+    border: 1px solid #2a2a2a;
     border-radius: 10px;
-    padding: 14px;
+
+    padding: 15px;
     resize: none;
 }
 
 button {
-    margin-top: 14px;
-    padding: 12px 18px;
+
+    margin-top: 15px;
+
     background: #2563eb;
     color: white;
+
     border: none;
     border-radius: 10px;
+
+    padding: 12px 22px;
     cursor: pointer;
 }
 
-.box {
-    margin-top: 20px;
-    background: #18181b;
-    border: 1px solid #333;
+#resposta {
+
+    margin-top: 25px;
+
+    background: #111827;
+
+    border: 1px solid #2a2a2a;
     border-radius: 10px;
-    padding: 18px;
+
+    padding: 20px;
+
     white-space: pre-wrap;
 }
 </style>
 </head>
 
 <body>
-<div class="container">
+
 <h1>ATLAS</h1>
 
 <p>Painel inteligente da ATLAS.</p>
 
 <textarea
-    id="input"
-    placeholder="Digite um comando..."
+id="input"
+placeholder="Digite um comando da ATLAS..."
 ></textarea>
+
+<br>
 
 <button onclick="enviar()">
 Enviar
 </button>
 
-<div class="box" id="resposta">
+<div id="resposta">
 ATLAS ONLINE
-</div>
 </div>
 
 <script>
+
 const vscode = acquireVsCodeApi();
 
 function enviar() {
-    const texto = document
-        .getElementById("input")
-        .value;
+
+    const texto =
+        document.getElementById("input").value;
 
     vscode.postMessage({
         command: "enviar",
@@ -307,15 +394,18 @@ function enviar() {
 }
 
 window.addEventListener("message", event => {
+
     const message = event.data;
 
     if (message.command === "resposta") {
-        document
-            .getElementById("resposta")
-            .textContent = message.texto;
+
+        document.getElementById(
+            "resposta"
+        ).textContent = message.texto;
     }
 });
 </script>
+
 </body>
 </html>
 `;
