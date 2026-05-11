@@ -20,10 +20,14 @@ import {
 } from "../core/ai.js";
 
 import {
-    comandos,
     comandoExiste,
     listarComandos
 } from "../core/commands.js";
+
+import {
+    listarPlugins,
+    gerarResumoPlugins
+} from "../core/plugins.js";
 
 function salvarConversa(usuario, resposta) {
 
@@ -75,6 +79,9 @@ function gerarStatusLocal() {
     const projetos =
         listarProjetos();
 
+    const plugins =
+        listarPlugins();
+
     return `
 STATUS LOCAL DA ATLAS
 
@@ -84,7 +91,13 @@ Sistema:
 - Memória separada
 - Logs separados
 - Arquivos separados
+- Plugins ativos
 - Obsidian conectado
+
+Plugins carregados:
+${plugins.map(
+    plugin => `- ${plugin.nome}`
+).join("\n")}
 
 Pastas:
 ${pastasMemoria.map(
@@ -126,6 +139,9 @@ function gerarHelp() {
 COMANDOS DISPONÍVEIS
 
 ${listarComandos().join("\n")}
+
+/plugins
+/plugin-status
 
 Digite:
 - sair
@@ -227,8 +243,14 @@ async function executarAgente() {
         .slice(0, 80)
         .join("\n");
 
+    const plugins =
+        gerarResumoPlugins();
+
     const prompt = `
 Você é a ATLAS.
+
+PLUGINS:
+${plugins}
 
 MEMÓRIA:
 ${memoria}
@@ -287,6 +309,10 @@ async function conversar() {
             comando.startsWith("/")
             &&
             !comandoExiste(comando)
+            &&
+            comando !== "/plugins"
+            &&
+            comando !== "/plugin-status"
         ) {
 
             console.log(`
@@ -306,6 +332,38 @@ Use /help
 ATLAS:
 
 ${gerarHelp()}
+`);
+
+            conversar();
+            return;
+        }
+
+        if (comando === "/plugins") {
+
+            console.log(`
+ATLAS:
+
+${gerarResumoPlugins()}
+`);
+
+            conversar();
+            return;
+        }
+
+        if (comando === "/plugin-status") {
+
+            const plugins =
+                listarPlugins();
+
+            console.log(`
+ATLAS:
+
+Plugins carregados:
+${plugins.length}
+
+${plugins.map(
+    plugin => `- ${plugin.nome}`
+).join("\n")}
 `);
 
             conversar();
@@ -573,6 +631,9 @@ ${resposta}
                     );
 
             const prompt = `
+PLUGINS:
+${gerarResumoPlugins()}
+
 MEMÓRIA:
 ${memoriaAtual}
 
