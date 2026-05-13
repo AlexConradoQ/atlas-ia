@@ -1,83 +1,69 @@
-import dotenv from "dotenv";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import dotenv from "dotenv";
+import { askOpenAI } from "./openai.js";
 
 dotenv.config();
 
-const genAI = new GoogleGenerativeAI(
-    process.env.GEMINI_API_KEY
-);
+const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash"
-});
-
-function esperar(ms) {
-    return new Promise(resolve =>
-        setTimeout(resolve, ms)
-    );
-}
-
-export async function gerarComRetry(
-    prompt,
-    tentativas = 3
-) {
-
-    for (
-        let tentativa = 1;
-        tentativa <= tentativas;
-        tentativa++
-    ) {
-
-        try {
-
-            const result =
-                await model.generateContent(prompt);
-
-            const response =
-                await result.response;
-
-            return response.text();
-
-        } catch (erro) {
-
-            const status =
-                erro?.status ||
-                erro?.statusCode;
-
-            console.log(`
-==================================
-ERRO NA GEMINI
-Tentativa: ${tentativa}/${tentativas}
-==================================
-`);
-
-            if (status === 429) {
-
-                console.log(
-                    "Limite da API atingido. Aguardando...\n"
-                );
-
-                await esperar(
-                    10000 * tentativa
-                );
-
-                continue;
-            }
-
-            if (tentativa === tentativas) {
-
-                return `
-Não consegui acessar a IA agora.
-A API atingiu limite ou ocorreu um erro.
-Tente novamente em alguns segundos.
-`;
-            }
-
-            await esperar(3000);
-        }
+export async function askAI(prompt, memory = "", provider = "auto") {
+  try {
+    if (provider === "openai") {
+      return await askOpenAI(prompt, memory);
     }
 
-    return `
-Não foi possível gerar resposta agora.
-`;
+    if (provider === "gemini") {
+      return await askGemini(prompt, memory);
+    }
+
+    // AUTO MODE
+    if (
+      prompt.toLowerCase().includes("arquitetura") ||
+      prompt.toLowerCase().includes("refatorar") ||
+      prompt.toLowerCase().includes("debug") ||
+      prompt.toLowerCase().includes("corrigir código")
+    ) {
+      return await askOpenAI(prompt, memory);
+    }
+
+    return await askGemini(prompt, memory);
+
+  } catch (error) {
+    console.error("Erro AI:", error);
+    return `Erro AI: ${error.message}`;
+  }
+}
+
+async function askGemini(prompt, memory = "") {
+  try {
+    if (!process.env.GEMINI_API_KEY) {
+      return "❌ GEMINI_API_KEY não encontrada.";
+    }
+
+    const model = gemini.getGenerativeModel({
+      model: "gemini-2.5-flash",
+    });
+
+    const result = await model.generateContent(`
+Você é a ATLAS IA.
+
+Seu papel:
+- Assistente local inteligente
+- Responder em português brasileiro
+- Ajudar com código e projetos
+- Sempre entregar código completo quando solicitado
+
+MEMÓRIA:
+${memory}
+
+USUÁRIO:
+${prompt}
+    `);
+
+    return result.response.text();
+
+  } catch (error) {
+    console.error("Erro Gemini:", error);
+    return `Erro Gemini: ${error.message}`;
+  }
 }

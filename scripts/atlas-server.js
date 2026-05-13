@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { askAI } from "../core/ai.js";
 
 dotenv.config();
 
@@ -15,14 +15,6 @@ app.use(express.json());
 
 const PORT = 3000;
 
-const genAI = new GoogleGenerativeAI(
-    process.env.GEMINI_API_KEY
-);
-
-const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash"
-});
-
 const pastasMemoria = [
     "00 - Sistema",
     "01 - Memória",
@@ -32,9 +24,7 @@ const pastasMemoria = [
     "05 - Logs"
 ];
 
-function lerArquivosMarkdownRecursivo(
-    caminhoPasta
-) {
+function lerArquivosMarkdownRecursivo(caminhoPasta) {
 
     let conteudoCompleto = "";
 
@@ -55,24 +45,22 @@ function lerArquivosMarkdownRecursivo(
         );
 
         if (item.isDirectory()) {
-
             conteudoCompleto +=
-                lerArquivosMarkdownRecursivo(
-                    caminhoItem
-                );
+                lerArquivosMarkdownRecursivo(caminhoItem);
         }
 
         if (
             item.isFile() &&
             item.name.endsWith(".md")
         ) {
-
             const conteudo = fs.readFileSync(
                 caminhoItem,
                 "utf8"
             );
 
             conteudoCompleto += `
+
+ARQUIVO: ${caminhoItem}
 
 ${conteudo}
 
@@ -95,13 +83,50 @@ function carregarMemoria() {
         );
 
         memoriaCompleta +=
-            lerArquivosMarkdownRecursivo(
-                caminhoPasta
-            );
+            lerArquivosMarkdownRecursivo(caminhoPasta);
     }
 
     return memoriaCompleta;
 }
+
+function identificarProvider(mensagem) {
+
+    const texto = mensagem.trim().toLowerCase();
+
+    if (texto.startsWith("/chatgpt")) {
+        return "openai";
+    }
+
+    if (texto.startsWith("/gemini")) {
+        return "gemini";
+    }
+
+    if (texto.startsWith("/atlas")) {
+        return "auto";
+    }
+
+    return "auto";
+}
+
+function limparComando(mensagem) {
+
+    return mensagem
+        .replace(/^\/chatgpt\s*/i, "")
+        .replace(/^\/gemini\s*/i, "")
+        .replace(/^\/atlas\s*/i, "")
+        .trim();
+}
+
+app.get("/", (req, res) => {
+    res.json({
+        status: "ATLAS SERVER ONLINE",
+        comandos: [
+            "/chatgpt",
+            "/gemini",
+            "/atlas"
+        ]
+    });
+});
 
 app.post("/chat", async (req, res) => {
 
@@ -109,32 +134,27 @@ app.post("/chat", async (req, res) => {
 
         const { mensagem } = req.body;
 
-        const memoria =
-            carregarMemoria();
+        if (!mensagem || !mensagem.trim()) {
+            return res.json({
+                resposta: "Digite uma mensagem para a ATLAS."
+            });
+        }
 
-        const prompt = `
-Você é a ATLAS.
+        const provider = identificarProvider(mensagem);
 
-MEMÓRIA:
-${memoria}
+        const mensagemLimpa = limparComando(mensagem);
 
-MENSAGEM:
-${mensagem}
-`;
+        const memoria = carregarMemoria();
 
-        const result =
-            await model.generateContent(
-                prompt
-            );
-
-        const response =
-            await result.response;
-
-        const texto =
-            response.text();
+        const resposta = await askAI(
+            mensagemLimpa || mensagem,
+            memoria,
+            provider
+        );
 
         res.json({
-            resposta: texto
+            resposta,
+            provider
         });
 
     } catch (erro) {
@@ -142,8 +162,8 @@ ${mensagem}
         console.log(erro);
 
         res.status(500).json({
-            resposta:
-                "Erro interno da ATLAS."
+            resposta: "Erro interno da ATLAS.",
+            erro: erro.message
         });
     }
 });
@@ -155,6 +175,13 @@ app.listen(PORT, () => {
 ATLAS SERVER ONLINE
 ==============================
 
+Servidor:
 http://localhost:3000
+
+Comandos:
+/chatgpt  -> OpenAI
+/gemini   -> Gemini
+/atlas    -> Auto
+==============================
 `);
 });

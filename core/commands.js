@@ -13,7 +13,11 @@ export const comandos = {
 
     "/ler": true,
     "/analisar-arquivo": true,
-    "/editar-arquivo": true
+    "/editar-arquivo": true,
+
+    "/chatgpt": true,
+    "/gemini": true,
+    "/atlas": true
 };
 
 export function comandoExiste(comando) {
