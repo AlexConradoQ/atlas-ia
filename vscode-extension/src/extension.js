@@ -2,6 +2,7 @@ const vscode = require("vscode");
 const path = require("path");
 const fs = require("fs");
 const dotenv = require("dotenv");
+const { exec } = require("child_process");
 
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const OpenAI = require("openai");
@@ -11,16 +12,14 @@ let openaiClient = null;
 let ultimoEditorTexto = null;
 let raizAtlas = null;
 let planoPendente = null;
+let contextoExtensao = null;
 
 function activate(context) {
     console.log("ATLAS ativada.");
 
-    raizAtlas = path.join(context.extensionPath, "..");
+    contextoExtensao = context;
 
-    dotenv.config({
-        path: path.join(raizAtlas, ".env")
-    });
-
+    atualizarRaizAtlas();
     configurarGemini();
     configurarOpenAI();
 
@@ -34,7 +33,15 @@ function activate(context) {
         }
     });
 
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        atualizarRaizAtlas();
+        configurarGemini();
+        configurarOpenAI();
+    });
+
     const disposable = vscode.commands.registerCommand("atlas.openPanel", () => {
+        atualizarRaizAtlas();
+
         const panel = vscode.window.createWebviewPanel(
             "atlasPanel",
             "ATLAS",
@@ -61,11 +68,35 @@ function activate(context) {
 
 function deactivate() {}
 
+function atualizarRaizAtlas() {
+    const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
+    if (workspace) {
+        if (path.basename(workspace).toLowerCase() === "vscode-extension") {
+            raizAtlas = path.dirname(workspace);
+        } else {
+            raizAtlas = workspace;
+        }
+    } else if (contextoExtensao) {
+        raizAtlas = path.join(contextoExtensao.extensionPath, "..");
+    } else {
+        raizAtlas = process.cwd();
+    }
+
+    dotenv.config({
+        path: path.join(raizAtlas, ".env"),
+        override: true
+    });
+
+    console.log("Raiz ATLAS:", raizAtlas);
+}
+
 function configurarGemini() {
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
         console.log("GEMINI_API_KEY não encontrada.");
+        geminiModel = null;
         return;
     }
 
@@ -83,6 +114,7 @@ function configurarOpenAI() {
 
     if (!apiKey) {
         console.log("OPENAI_API_KEY não encontrada.");
+        openaiClient = null;
         return;
     }
 
@@ -118,10 +150,13 @@ function obterSelecaoAtual() {
 }
 
 function caminhoSeguro(caminhoRelativo) {
-    const caminhoNormalizado = caminhoRelativo.replace(/\\/g, "/").trim();
-    const caminhoFinal = path.resolve(raizAtlas, caminhoNormalizado);
+    atualizarRaizAtlas();
 
-    if (!caminhoFinal.startsWith(path.resolve(raizAtlas))) {
+    const caminhoNormalizado = caminhoRelativo.replace(/\\/g, "/").trim() || ".";
+    const caminhoFinal = path.resolve(raizAtlas, caminhoNormalizado);
+    const raizResolvida = path.resolve(raizAtlas);
+
+    if (!caminhoFinal.startsWith(raizResolvida)) {
         throw new Error("Caminho inválido fora da pasta ATLAS-IA.");
     }
 
@@ -138,6 +173,14 @@ function lerArquivosMarkdownRecursivo(caminhoPasta) {
     for (const item of itens) {
         const caminhoItem = path.join(caminhoPasta, item.name);
 
+        if (
+            item.name === "node_modules" ||
+            item.name === ".git" ||
+            item.name === ".vscode"
+        ) {
+            continue;
+        }
+
         if (item.isDirectory()) {
             conteudoCompleto += lerArquivosMarkdownRecursivo(caminhoItem);
         }
@@ -147,7 +190,7 @@ function lerArquivosMarkdownRecursivo(caminhoPasta) {
 
             conteudoCompleto += `
 
-ARQUIVO: ${caminhoItem}
+ARQUIVO: ${path.relative(raizAtlas, caminhoItem)}
 
 ${conteudo}
 
@@ -159,6 +202,8 @@ ${conteudo}
 }
 
 function carregarMemoria() {
+    atualizarRaizAtlas();
+
     const pastasMemoria = [
         "00 - Sistema",
         "01 - Memória",
@@ -202,9 +247,12 @@ async function chamarGemini(prompt) {
         return `
 Gemini não conectado.
 
-Verifique o arquivo .env:
+Verifique o arquivo .env na raiz do projeto:
 
 GEMINI_API_KEY=sua_chave
+
+Raiz atual:
+${raizAtlas}
 `;
     }
 
@@ -275,6 +323,8 @@ ${erro.message}
 }
 
 async function chamarIA(textoUsuario, provider = "auto") {
+    atualizarRaizAtlas();
+
     const memoria = carregarMemoria();
 
     let providerFinal = provider;
@@ -294,7 +344,9 @@ IDENTIDADE:
 - Não mande pequenos trechos soltos.
 - Não invente arquivos que você não viu.
 - Use a memória local quando ela ajudar.
-- Se estiver editando código, devolva somente o arquivo final quando solicitado.
+
+RAIZ DO PROJETO:
+${raizAtlas}
 
 MEMÓRIA LOCAL:
 ${memoria}
@@ -355,6 +407,54 @@ function listarArquivosRecursivo(caminhoPasta, limite = 120) {
     andar(caminhoPasta);
 
     return resultados.join("\n");
+}
+
+function buscarTextoRecursivo(caminhoPasta, termo, limite = 80) {
+    const resultados = [];
+
+    function andar(pasta) {
+        if (resultados.length >= limite) return;
+        if (!fs.existsSync(pasta)) return;
+
+        const itens = fs.readdirSync(pasta, { withFileTypes: true });
+
+        for (const item of itens) {
+            if (resultados.length >= limite) break;
+
+            if (
+                item.name === "node_modules" ||
+                item.name === ".git" ||
+                item.name === ".vscode"
+            ) {
+                continue;
+            }
+
+            const caminhoItem = path.join(pasta, item.name);
+
+            if (item.isDirectory()) {
+                andar(caminhoItem);
+                continue;
+            }
+
+            const extensoesPermitidas = [
+                ".js", ".json", ".md", ".html", ".css", ".txt", ".env"
+            ];
+
+            if (!extensoesPermitidas.includes(path.extname(item.name))) {
+                continue;
+            }
+
+            const conteudo = fs.readFileSync(caminhoItem, "utf8");
+
+            if (conteudo.toLowerCase().includes(termo.toLowerCase())) {
+                resultados.push(path.relative(raizAtlas, caminhoItem));
+            }
+        }
+    }
+
+    andar(caminhoPasta);
+
+    return resultados;
 }
 
 async function criarArquivo(comando) {
@@ -449,6 +549,145 @@ ${instrucao}
 `;
 }
 
+function deletarArquivo(comando) {
+    const caminhoRelativo = comando.replace(/^\/deletar-arquivo\s*/i, "").trim();
+
+    if (!caminhoRelativo) {
+        return `
+Formato correto:
+
+/deletar-arquivo caminho/do/arquivo.js
+`;
+    }
+
+    const caminhoFinal = caminhoSeguro(caminhoRelativo);
+
+    if (!fs.existsSync(caminhoFinal)) {
+        return `Arquivo não encontrado: ${caminhoRelativo}`;
+    }
+
+    if (fs.statSync(caminhoFinal).isDirectory()) {
+        return "Por segurança, este comando não deleta pastas.";
+    }
+
+    fs.unlinkSync(caminhoFinal);
+
+    return `
+Arquivo deletado com sucesso.
+
+CAMINHO:
+${caminhoRelativo}
+`;
+}
+
+function substituirTexto(comando) {
+    const conteudoComando = comando.replace(/^\/substituir-texto\s*/i, "").trim();
+
+    if (!conteudoComando.includes("|")) {
+        return `
+Formato correto:
+
+/substituir-texto arquivo.js | texto antigo | texto novo
+`;
+    }
+
+    const partes = conteudoComando.split("|").map(p => p.trim());
+
+    if (partes.length < 3) {
+        return `
+Formato correto:
+
+/substituir-texto arquivo.js | texto antigo | texto novo
+`;
+    }
+
+    const caminhoFinal = caminhoSeguro(partes[0]);
+    const antigo = partes[1];
+    const novo = partes.slice(2).join("|");
+
+    if (!fs.existsSync(caminhoFinal)) {
+        return `Arquivo não encontrado: ${partes[0]}`;
+    }
+
+    const conteudoAtual = fs.readFileSync(caminhoFinal, "utf8");
+
+    if (!conteudoAtual.includes(antigo)) {
+        return `Texto antigo não encontrado no arquivo: ${partes[0]}`;
+    }
+
+    const atualizado = conteudoAtual.split(antigo).join(novo);
+
+    fs.writeFileSync(caminhoFinal, atualizado, "utf8");
+
+    return `
+Texto substituído com sucesso.
+
+ARQUIVO:
+${partes[0]}
+`;
+}
+
+function executarComando(comando) {
+    const comandoShell = comando.replace(/^\/executar\s*/i, "").trim();
+
+    if (!comandoShell) {
+        return Promise.resolve(`
+Formato correto:
+
+/executar comando
+
+Exemplo:
+/executar npm test
+`);
+    }
+
+    const comandosBloqueados = [
+        "rm ",
+        "del ",
+        "format",
+        "shutdown",
+        "restart",
+        "powershell -enc",
+        "curl ",
+        "wget "
+    ];
+
+    const lower = comandoShell.toLowerCase();
+
+    if (comandosBloqueados.some(b => lower.includes(b))) {
+        return Promise.resolve("Comando bloqueado por segurança.");
+    }
+
+    return new Promise((resolve) => {
+        exec(
+            comandoShell,
+            {
+                cwd: raizAtlas,
+                timeout: 30000,
+                maxBuffer: 1024 * 1024
+            },
+            (erro, stdout, stderr) => {
+                resolve(`
+COMANDO EXECUTADO:
+${comandoShell}
+
+PASTA:
+${raizAtlas}
+
+SAÍDA:
+${stdout || "(sem saída)"}
+
+ERROS:
+${stderr || "(sem erros)"}
+
+STATUS:
+${erro ? "Finalizado com erro" : "Finalizado com sucesso"}
+`);
+            }
+        );
+    });
+}
+
 function extrairJson(texto) {
     const limpo = texto
         .replace(/```json/g, "```")
@@ -478,9 +717,6 @@ async function criarPlanoAgente(comando) {
 Formato correto:
 
 /agent descreva o que você quer que a ATLAS construa
-
-Exemplo:
-/agent criar um módulo simples de autenticação local
 `;
     }
 
@@ -501,7 +737,6 @@ REGRAS IMPORTANTES:
 - Não explique fora do JSON.
 - Nunca edite package.json, .env, package-lock.json ou arquivos em node_modules.
 - Prefira criar arquivos novos em pastas seguras.
-- Se precisar editar arquivo existente, limite a arquivos claramente relacionados.
 - Cada ação deve ter:
   - tipo: "criar" ou "editar"
   - caminho: caminho relativo do arquivo
@@ -670,6 +905,8 @@ function cancelarPlanoAgente() {
 }
 
 async function gerarResposta(texto) {
+    atualizarRaizAtlas();
+
     const comando = texto.trim();
 
     if (!comando) return "Digite um comando ou uma mensagem.";
@@ -686,6 +923,7 @@ GERAIS:
 /arquivo-atual
 /selecao
 /listar-arquivos
+/buscar-texto termo
 
 IA:
 /chatgpt pergunta
@@ -700,14 +938,12 @@ CÓDIGO:
 EXECUTOR LOCAL:
 /criar-arquivo caminho | conteúdo
 /editar-arquivo caminho | instrução
+/substituir-texto arquivo | texto antigo | texto novo
+/deletar-arquivo caminho
+/executar comando
 
 AGENTE:
 /agent pedido complexo
-/confirmar
-/cancelar
-
-EXEMPLOS:
-/agent criar um módulo simples de autenticação local
 /confirmar
 /cancelar
 `;
@@ -723,6 +959,7 @@ STATUS DA ATLAS
 - Fallback OpenAI → Gemini: ativo
 - Executor local: ativo
 - Modo agente: ativo com confirmação
+- Comandos operacionais: ativos
 - Memória local: ativa
 - Raiz ATLAS: ${raizAtlas}
 `;
@@ -749,13 +986,8 @@ MEMÓRIA CARREGADA
 Caracteres carregados:
 ${memoria.length}
 
-Pastas:
-00 - Sistema
-01 - Memória
-02 - Projetos
-03 - Conhecimento
-04 - Prompts
-05 - Logs
+Raiz:
+${raizAtlas}
 `;
     }
 
@@ -797,7 +1029,14 @@ ${dadosSelecao.textoSelecionado}
         const caminhoPasta = caminhoSeguro(pasta);
 
         if (!fs.existsSync(caminhoPasta)) {
-            return `Pasta não encontrada: ${pasta}`;
+            return `
+Pasta não encontrada:
+
+${pasta}
+
+Raiz atual:
+${raizAtlas}
+`;
         }
 
         return `
@@ -807,12 +1046,45 @@ ${listarArquivosRecursivo(caminhoPasta)}
 `;
     }
 
+    if (comando.startsWith("/buscar-texto ")) {
+        const termo = comando.replace(/^\/buscar-texto\s*/i, "").trim();
+
+        const resultados = buscarTextoRecursivo(raizAtlas, termo);
+
+        if (!resultados.length) {
+            return `Nenhum arquivo encontrado com o termo: ${termo}`;
+        }
+
+        return `
+TERMO BUSCADO:
+${termo}
+
+RAIZ:
+${raizAtlas}
+
+ARQUIVOS ENCONTRADOS:
+${resultados.join("\n")}
+`;
+    }
+
     if (comando.startsWith("/criar-arquivo ")) {
         return await criarArquivo(comando);
     }
 
     if (comando.startsWith("/editar-arquivo ")) {
         return await editarArquivo(comando);
+    }
+
+    if (comando.startsWith("/deletar-arquivo ")) {
+        return deletarArquivo(comando);
+    }
+
+    if (comando.startsWith("/substituir-texto ")) {
+        return substituirTexto(comando);
+    }
+
+    if (comando.startsWith("/executar ")) {
+        return await executarComando(comando);
     }
 
     if (comando.startsWith("/agent ")) {
@@ -861,12 +1133,6 @@ ${codigo}
 
 PERGUNTA:
 ${pergunta}
-
-Responda com:
-1. O que esse arquivo faz.
-2. Pontos fortes.
-3. Pontos de melhoria.
-4. Próximo passo recomendado.
 `;
 
         return await chamarIA(promptUsuario, "gemini");
@@ -894,8 +1160,6 @@ ${dadosSelecao.textoSelecionado}
 
 PERGUNTA:
 ${pergunta}
-
-Explique de forma clara e sugira melhorias se fizer sentido.
 `;
 
         return await chamarIA(promptUsuario, "gemini");
@@ -909,12 +1173,6 @@ Explique de forma clara e sugira melhorias se fizer sentido.
 Gere código completo para este pedido:
 
 ${promptUsuario}
-
-Regras:
-- Entregue código completo.
-- Explique rapidamente onde colar.
-- Não entregue só pedaços soltos.
-- Mantenha o código organizado.
 `,
             "gemini"
         );
@@ -932,9 +1190,7 @@ function getWebviewContent() {
 <meta charset="UTF-8">
 
 <style>
-* {
-    box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
     background: #050816;
@@ -976,9 +1232,7 @@ button {
     font-weight: bold;
 }
 
-button:hover {
-    filter: brightness(1.15);
-}
+button:hover { filter: brightness(1.15); }
 
 .quick {
     display: flex;
@@ -1018,7 +1272,7 @@ button:hover {
 <h1>ATLAS IA</h1>
 
 <div class="subtitle">
-Painel interno do VS Code — Gemini + OpenAI + Memória Local + Executor + Agent
+Painel interno do VS Code — Agent Operacional
 </div>
 
 <div class="status">
@@ -1027,22 +1281,21 @@ Painel interno do VS Code — Gemini + OpenAI + Memória Local + Executor + Agen
 
 <textarea
 id="input"
-placeholder="Digite aqui. Ex: /agent criar um módulo simples de autenticação"
+placeholder="Digite aqui. Ex: /buscar-texto askAI"
 ></textarea>
 
 <br>
 
-<button onclick="enviar()">
-Enviar
-</button>
+<button onclick="enviar()">Enviar</button>
 
 <div class="quick">
     <button onclick="atalho('/help')">/help</button>
     <button onclick="atalho('/status')">/status</button>
     <button onclick="atalho('/memoria')">/memoria</button>
     <button onclick="atalho('/arquivo-atual')">/arquivo-atual</button>
-    <button onclick="atalho('/listar-arquivos core')">/listar-arquivos</button>
-    <button onclick="atalho('/ia-arquivo explique esse arquivo e me diga melhorias')">/ia-arquivo</button>
+    <button onclick="atalho('/listar-arquivos core')">/listar</button>
+    <button onclick="atalho('/buscar-texto askAI')">/buscar</button>
+    <button onclick="atalho('/ia-arquivo explique esse arquivo')">/ia-arquivo</button>
     <button onclick="atalho('/agent criar um módulo simples de exemplo')">/agent</button>
 </div>
 
@@ -1093,4 +1346,4 @@ window.addEventListener("message", event => {
 module.exports = {
     activate,
     deactivate
-};
+};  
