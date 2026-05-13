@@ -224,6 +224,42 @@ function carregarMemoria() {
     return memoriaCompleta;
 }
 
+function salvarMemoria(comando) {
+    const texto = comando.replace(/^\/salvar-memoria\s*/i, "").trim();
+
+    if (!texto) {
+        return `
+Formato correto:
+
+/salvar-memoria texto importante para lembrar
+`;
+    }
+
+    const pastaMemoria = caminhoSeguro("01 - Memória");
+    const arquivoMemoria = path.join(pastaMemoria, "memoria-principal.md");
+
+    fs.mkdirSync(pastaMemoria, { recursive: true });
+
+    const data = new Date().toLocaleString("pt-BR");
+
+    const registro = `
+
+## Registro automático - ${data}
+
+${texto}
+
+`;
+
+    fs.appendFileSync(arquivoMemoria, registro, "utf8");
+
+    return `
+Memória salva com sucesso.
+
+ARQUIVO:
+01 - Memória/memoria-principal.md
+`;
+}
+
 function limparComandoIA(comando) {
     return comando
         .replace(/^\/chatgpt\s*/i, "")
@@ -457,6 +493,42 @@ function buscarTextoRecursivo(caminhoPasta, termo, limite = 80) {
     return resultados;
 }
 
+async function abrirArquivo(comando) {
+    const caminhoRelativo = comando.replace(/^\/abrir\s*/i, "").trim();
+
+    if (!caminhoRelativo) {
+        return `
+Formato correto:
+
+/abrir caminho/do/arquivo.js
+`;
+    }
+
+    const caminhoFinal = caminhoSeguro(caminhoRelativo);
+
+    if (!fs.existsSync(caminhoFinal)) {
+        return `
+Arquivo não encontrado:
+
+${caminhoRelativo}
+`;
+    }
+
+    if (fs.statSync(caminhoFinal).isDirectory()) {
+        return "Esse caminho é uma pasta. Use um arquivo.";
+    }
+
+    const documento = await vscode.workspace.openTextDocument(caminhoFinal);
+    await vscode.window.showTextDocument(documento);
+
+    return `
+Arquivo aberto com sucesso.
+
+CAMINHO:
+${path.relative(raizAtlas, caminhoFinal)}
+`;
+}
+
 async function criarArquivo(comando) {
     const conteudoComando = comando.replace(/^\/criar-arquivo\s*/i, "").trim();
 
@@ -537,6 +609,9 @@ ${instrucao}
     const novoConteudo = extrairCodigoLimpo(respostaIA);
 
     fs.writeFileSync(caminhoFinal, novoConteudo, "utf8");
+
+    const documento = await vscode.workspace.openTextDocument(caminhoFinal);
+    await vscode.window.showTextDocument(documento);
 
     return `
 Arquivo editado e salvo com sucesso.
@@ -627,17 +702,18 @@ ${partes[0]}
 `;
 }
 
-function executarComando(comando) {
-    const comandoShell = comando.replace(/^\/executar\s*/i, "").trim();
+function executarComando(comando, alias = "/executar") {
+    const regex = new RegExp(`^${alias}\\s*`, "i");
+    const comandoShell = comando.replace(regex, "").trim();
 
     if (!comandoShell) {
         return Promise.resolve(`
 Formato correto:
 
-/executar comando
+${alias} comando
 
 Exemplo:
-/executar npm test
+${alias} npm test
 `);
     }
 
@@ -920,27 +996,31 @@ GERAIS:
 /status
 /plugins
 /memoria
+/salvar-memoria texto
 /arquivo-atual
 /selecao
 /listar-arquivos
 /buscar-texto termo
 
-IA:
-/chatgpt pergunta
-/gemini pergunta
-/atlas pergunta
-
-CÓDIGO:
-/ia-arquivo pergunta
-/ia-selecao pergunta
-/gerar-codigo pedido
-
-EXECUTOR LOCAL:
+ARQUIVOS:
+/abrir caminho
 /criar-arquivo caminho | conteúdo
 /editar-arquivo caminho | instrução
 /substituir-texto arquivo | texto antigo | texto novo
 /deletar-arquivo caminho
+
+TERMINAL:
+/terminal comando
+/rodar comando
 /executar comando
+
+IA:
+/chatgpt pergunta
+/gemini pergunta
+/atlas pergunta
+/ia-arquivo pergunta
+/ia-selecao pergunta
+/gerar-codigo pedido
 
 AGENTE:
 /agent pedido complexo
@@ -989,6 +1069,10 @@ ${memoria.length}
 Raiz:
 ${raizAtlas}
 `;
+    }
+
+    if (comando.startsWith("/salvar-memoria ")) {
+        return salvarMemoria(comando);
     }
 
     if (comando === "/arquivo-atual") {
@@ -1067,6 +1151,10 @@ ${resultados.join("\n")}
 `;
     }
 
+    if (comando.startsWith("/abrir ")) {
+        return await abrirArquivo(comando);
+    }
+
     if (comando.startsWith("/criar-arquivo ")) {
         return await criarArquivo(comando);
     }
@@ -1083,8 +1171,16 @@ ${resultados.join("\n")}
         return substituirTexto(comando);
     }
 
+    if (comando.startsWith("/terminal ")) {
+        return await executarComando(comando, "/terminal");
+    }
+
+    if (comando.startsWith("/rodar ")) {
+        return await executarComando(comando, "/rodar");
+    }
+
     if (comando.startsWith("/executar ")) {
-        return await executarComando(comando);
+        return await executarComando(comando, "/executar");
     }
 
     if (comando.startsWith("/agent ")) {
@@ -1272,7 +1368,7 @@ button:hover { filter: brightness(1.15); }
 <h1>ATLAS IA</h1>
 
 <div class="subtitle">
-Painel interno do VS Code — Agent Operacional
+Painel interno do VS Code — Agent Operacional 2A
 </div>
 
 <div class="status">
@@ -1281,7 +1377,7 @@ Painel interno do VS Code — Agent Operacional
 
 <textarea
 id="input"
-placeholder="Digite aqui. Ex: /buscar-texto askAI"
+placeholder="Digite aqui. Ex: /abrir core/ai.js"
 ></textarea>
 
 <br>
@@ -1293,6 +1389,7 @@ placeholder="Digite aqui. Ex: /buscar-texto askAI"
     <button onclick="atalho('/status')">/status</button>
     <button onclick="atalho('/memoria')">/memoria</button>
     <button onclick="atalho('/arquivo-atual')">/arquivo-atual</button>
+    <button onclick="atalho('/abrir core/ai.js')">/abrir</button>
     <button onclick="atalho('/listar-arquivos core')">/listar</button>
     <button onclick="atalho('/buscar-texto askAI')">/buscar</button>
     <button onclick="atalho('/ia-arquivo explique esse arquivo')">/ia-arquivo</button>
@@ -1346,4 +1443,4 @@ window.addEventListener("message", event => {
 module.exports = {
     activate,
     deactivate
-};  
+};
