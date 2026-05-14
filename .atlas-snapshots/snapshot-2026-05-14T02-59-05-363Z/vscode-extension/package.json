@@ -1,0 +1,30 @@
+{
+  "name": "atlas-vscode",
+  "displayName": "ATLAS VS Code",
+  "description": "Integração da ATLAS com o VS Code.",
+  "version": "0.0.1",
+  "publisher": "alexconrado",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:atlas.openPanel"
+  ],
+  "main": "./src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "atlas.openPanel",
+        "title": "ATLAS: Abrir Painel"
+      }
+    ]
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "dotenv": "^16.4.7",
+    "openai": "^4.77.0"
+  }
+}

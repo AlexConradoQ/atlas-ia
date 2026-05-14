@@ -1,9 +1,16 @@
 import fs from "fs";
 import path from "path";
 import readline from "readline";
-import { exec } from "child_process";
+import dotenv from "dotenv";
+import { exec, execFile } from "child_process";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const raiz = process.cwd();
+
+dotenv.config({
+  path: path.join(raiz, ".env"),
+  override: true
+});
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -18,6 +25,21 @@ const ignorar = [
   ".atlas-backups",
   ".atlas-snapshots"
 ];
+
+const caminhoPythonPadrao =
+  "C:\\Users\\anime\\AppData\\Local\\Programs\\Python\\Python314\\python.exe";
+
+const geminiApiKey = process.env.GEMINI_API_KEY;
+let geminiModel = null;
+let vozAtiva = false;
+
+if (geminiApiKey) {
+  const genAI = new GoogleGenerativeAI(geminiApiKey);
+
+  geminiModel = genAI.getGenerativeModel({
+    model: "gemini-2.5-flash"
+  });
+}
 
 function dataNome() {
   return new Date()
@@ -47,8 +69,8 @@ function listarArquivos(pasta = ".") {
   const itens = fs.readdirSync(caminho, { withFileTypes: true });
 
   return itens
-    .filter(item => !ignorar.includes(item.name))
-    .map(item => {
+    .filter((item) => !ignorar.includes(item.name))
+    .map((item) => {
       const icone = item.isDirectory() ? "📁" : "📄";
       return `${icone} ${item.name}`;
     })
@@ -75,6 +97,61 @@ function lerArquivo(caminhoRelativo) {
   return conteudo.length > 20000
     ? conteudo.slice(0, 20000) + "\n\n[ARQUIVO CORTADO POR LIMITE]"
     : conteudo;
+}
+
+function carregarMemoria() {
+  const pastasMemoria = [
+    "00 - Sistema",
+    "01 - Memória",
+    "02 - Projetos",
+    "03 - Conhecimento",
+    "04 - Prompts",
+    "05 - Logs"
+  ];
+
+  let memoria = "";
+
+  for (const pasta of pastasMemoria) {
+    const caminhoPasta = path.join(raiz, pasta);
+
+    if (!fs.existsSync(caminhoPasta)) continue;
+
+    memoria += lerMarkdownRecursivo(caminhoPasta);
+  }
+
+  return memoria;
+}
+
+function lerMarkdownRecursivo(pasta) {
+  let resultado = "";
+
+  const itens = fs.readdirSync(pasta, { withFileTypes: true });
+
+  for (const item of itens) {
+    if (ignorar.includes(item.name)) continue;
+
+    const caminhoItem = path.join(pasta, item.name);
+
+    if (item.isDirectory()) {
+      resultado += lerMarkdownRecursivo(caminhoItem);
+      continue;
+    }
+
+    if (item.isFile() && item.name.endsWith(".md")) {
+      const conteudo = fs.readFileSync(caminhoItem, "utf8");
+      const relativo = path.relative(raiz, caminhoItem);
+
+      resultado += `
+
+ARQUIVO: ${relativo}
+
+${conteudo}
+
+`;
+    }
+  }
+
+  return resultado;
 }
 
 function snapshot() {
@@ -114,7 +191,7 @@ function copiarPasta(origem, destinoFinal) {
 }
 
 function executarTerminal(comando) {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     if (!comando) {
       resolve("Uso: /terminal comando");
       return;
@@ -133,7 +210,7 @@ function executarTerminal(comando) {
 
     const lower = comando.toLowerCase();
 
-    if (bloqueados.some(b => lower.includes(b))) {
+    if (bloqueados.some((b) => lower.includes(b))) {
       resolve("Comando bloqueado por segurança.");
       return;
     }
@@ -164,6 +241,86 @@ ${erro ? "Finalizado com erro" : "Finalizado com sucesso"}
   });
 }
 
+function falarTexto(texto) {
+  return new Promise((resolve) => {
+    const python = fs.existsSync(caminhoPythonPadrao)
+      ? caminhoPythonPadrao
+      : "python";
+
+    const textoLimpo = String(texto || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 1200);
+
+    if (!textoLimpo) {
+      resolve("Nada para falar.");
+      return;
+    }
+
+    execFile(
+      python,
+      ["scripts/atlas-voice.py", textoLimpo],
+      {
+        cwd: raiz,
+        timeout: 60000,
+        maxBuffer: 1024 * 1024
+      },
+      (erro, stdout, stderr) => {
+        if (erro) {
+          resolve(`Erro ao falar: ${stderr || erro.message}`);
+          return;
+        }
+
+        resolve(stdout || "Voz executada.");
+      }
+    );
+  });
+}
+
+async function perguntarIA(pergunta) {
+  if (!geminiModel) {
+    return `
+Gemini não conectado.
+
+Verifique se existe no .env:
+
+GEMINI_API_KEY=sua_chave
+`;
+  }
+
+  const memoria = carregarMemoria();
+
+  const prompt = `
+Você é a ATLAS IA, assistente local do Alexander no terminal.
+
+IDENTIDADE:
+- Responda em português brasileiro.
+- Seja direto, prático e organizado.
+- Ajude com código, arquitetura, estudos e projetos.
+- Quando pedir código, entregue código completo.
+- Não invente arquivos que você não viu.
+- Use a memória local quando fizer sentido.
+
+RAIZ DO PROJETO:
+${raiz}
+
+MEMÓRIA LOCAL:
+${memoria.slice(0, 30000)}
+
+PEDIDO DO USUÁRIO:
+${pergunta}
+`;
+
+  try {
+    const resultado = await geminiModel.generateContent(prompt);
+    const resposta = await resultado.response;
+
+    return resposta.text();
+  } catch (erro) {
+    return `Erro ao chamar Gemini: ${erro.message}`;
+  }
+}
+
 function ajuda() {
   return `
 ATLAS CLI — comandos disponíveis
@@ -186,8 +343,20 @@ Cria snapshot manual do projeto.
 /terminal comando
 Executa comando no terminal com bloqueios básicos.
 
+/falar texto
+Faz a ATLAS falar usando voz neural feminina.
+
+/voz on
+Ativa resposta falada automática.
+
+/voz off
+Desativa resposta falada automática.
+
 /sair
 Fecha a ATLAS CLI.
+
+MODO CONVERSA:
+Digite qualquer pergunta sem "/" e a ATLAS responde com IA.
 `;
 }
 
@@ -215,14 +384,44 @@ RAIZ:
 ${raiz}
 
 MODO:
-Terminal local
+Terminal local + conversa IA + voz neural
+
+IA:
+Gemini: ${geminiModel ? "conectado" : "não conectado"}
+
+VOZ:
+${vozAtiva ? "ativada" : "desativada"}
 
 RECURSOS:
 - leitura de arquivos
 - listagem
 - snapshot
 - terminal seguro
+- conversa natural com IA
+- voz neural feminina
 `);
+    return;
+  }
+
+  if (comando === "/voz on") {
+    vozAtiva = true;
+    console.log("Voz automática ativada.");
+    await falarTexto("Voz automática ativada.");
+    return;
+  }
+
+  if (comando === "/voz off") {
+    vozAtiva = false;
+    console.log("Voz automática desativada.");
+    return;
+  }
+
+  if (comando.startsWith("/falar ")) {
+    const texto = comando.replace(/^\/falar\s*/i, "").trim();
+
+    console.log("ATLAS falando...");
+    const resultado = await falarTexto(texto);
+    console.log(resultado);
     return;
   }
 
@@ -250,7 +449,13 @@ RECURSOS:
     return;
   }
 
-  console.log("Comando não reconhecido. Use /help.");
+  console.log("ATLAS pensando...\n");
+  const resposta = await perguntarIA(comando);
+  console.log(resposta);
+
+  if (vozAtiva) {
+    await falarTexto(resposta);
+  }
 }
 
 console.log("ATLAS CLI iniciada.");
