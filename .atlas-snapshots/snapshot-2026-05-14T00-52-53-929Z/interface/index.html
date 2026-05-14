@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ATLAS IA</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+
+    <div class="hud">
+
+        <header class="topbar">
+            <div class="brand">
+                <div class="logo">◆</div>
+                <h1>ATLAS <span>IA</span></h1>
+                <small>AI SYSTEM</small>
+            </div>
+
+            <div class="clock" id="clock">00:00:00</div>
+
+            <div class="top-status">
+                <span>25.2°C</span>
+                <span>Conexão: Online</span>
+                <span>⚙</span>
+            </div>
+        </header>
+
+        <aside class="left-panel">
+
+            <div class="card">
+                <h2>⚙ SYSTEM STATUS</h2>
+
+                <p>CPU Usage 22%</p>
+                <div class="bar"><div style="width:22%"></div></div>
+
+                <p>RAM Usage 68%</p>
+                <div class="bar"><div style="width:68%"></div></div>
+
+                <div class="mini-grid">
+                    <div>CPU<br><strong>22%</strong></div>
+                    <div>MEMORY<br><strong>68%</strong></div>
+                    <div>STORAGE<br><strong>379GB</strong></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>☁ WEATHER</h2>
+                <div class="weather">25.2°C</div>
+                <p>Céu nublado<br>Osasco, SP</p>
+            </div>
+
+            <div class="card">
+                <h2>◉ ATLAS CORE</h2>
+                <div class="core-small"></div>
+                <p class="online">ONLINE</p>
+                <p>Todos os sistemas operacionais.</p>
+            </div>
+
+            <div class="card">
+                <h2>▣ MEMORY BANK</h2>
+
+                <div class="folders">
+                    <span>00 - Sistema</span>
+                    <span>01 - Memória</span>
+                    <span>02 - Projetos</span>
+                    <span>03 - Conhecimento</span>
+                    <span>04 - Prompts</span>
+                    <span>05 - Logs</span>
+                </div>
+            </div>
+
+        </aside>
+
+        <main class="center-panel">
+
+            <h2>ATLAS AI INTERFACE</h2>
+            <p>NEURAL NETWORK ONLINE</p>
+
+            <div class="radar">
+                <div class="ring ring1"></div>
+                <div class="ring ring2"></div>
+                <div class="ring ring3"></div>
+                <div class="ring ring4"></div>
+                <div class="center-core">ATLAS</div>
+            </div>
+
+            <div class="wave"></div>
+
+            <p class="listening" id="voiceStatus">
+                ● Waiting for command...
+            </p>
+
+            <div class="actions">
+                <button id="voiceBtn">VOICE</button>
+                <button data-command="/organizar">SCAN</button>
+                <button data-command="/analisar">DATA</button>
+            </div>
+
+        </main>
+
+        <section class="chat-panel">
+
+            <div class="chat-header">
+                <h2>CONVERSATION</h2>
+                <button id="clearBtn">Clear</button>
+            </div>
+
+            <div id="messages" class="messages">
+                <div class="message atlas">
+                    <strong>ATLAS</strong>
+                    <p>Olá, Alex. ATLAS online.</p>
+                </div>
+            </div>
+
+            <form id="chatForm" class="input-area">
+                <input
+                    id="userInput"
+                    type="text"
+                    placeholder="Digite sua mensagem..."
+                    autocomplete="off"
+                />
+
+                <button type="submit">➤</button>
+            </form>
+
+        </section>
+
+        <footer class="footer">
+            <button>DASHBOARD</button>
+            <button>MEMORY</button>
+            <button>PROJECTS</button>
+            <button>KNOWLEDGE</button>
+            <button>PROMPTS</button>
+            <button>LOGS</button>
+
+            <span>ATLAS OS v2.1.0</span>
+        </footer>
+
+    </div>
+
+    <script src="script.js"></script>
+
+</body>
+
+</html>
