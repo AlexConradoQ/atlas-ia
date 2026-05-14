@@ -163,6 +163,202 @@ function caminhoSeguro(caminhoRelativo) {
     return caminhoFinal;
 }
 
+function caminhoRelativoSeguro(caminhoFinal) {
+    atualizarRaizAtlas();
+    return path.relative(raizAtlas, caminhoFinal).replace(/\\/g, "/");
+}
+
+function estaBloqueadoParaEdicao(caminhoRelativo) {
+    const normalizado = caminhoRelativo.replace(/\\/g, "/").toLowerCase();
+
+    const bloqueios = [
+        "node_modules/",
+        ".git/",
+        ".vscode/",
+        ".atlas-backups/",
+        ".obsidian/",
+        ".env",
+        "package-lock.json"
+    ];
+
+    if (normalizado === ".env") return true;
+    if (normalizado.endsWith("/.env")) return true;
+    if (normalizado === "package-lock.json") return true;
+    if (normalizado.endsWith("/package-lock.json")) return true;
+
+    return bloqueios.some((bloqueio) => normalizado.includes(bloqueio));
+}
+
+function validarPodeEditar(caminhoRelativo) {
+    if (estaBloqueadoParaEdicao(caminhoRelativo)) {
+        throw new Error(`Arquivo bloqueado por segurança: ${caminhoRelativo}`);
+    }
+}
+
+function obterPastaBackups() {
+    const pasta = path.join(raizAtlas, ".atlas-backups");
+    fs.mkdirSync(pasta, { recursive: true });
+    return pasta;
+}
+
+function obterPastaLogs() {
+    const pasta = path.join(raizAtlas, "05 - Logs");
+    fs.mkdirSync(pasta, { recursive: true });
+    return pasta;
+}
+
+function registrarAcaoAtlas(tipo, detalhes) {
+    try {
+        atualizarRaizAtlas();
+
+        const pastaLogs = obterPastaLogs();
+        const arquivoLog = path.join(pastaLogs, "atlas-actions.md");
+        const data = new Date().toLocaleString("pt-BR");
+
+        const registro = `
+## ${data} - ${tipo}
+
+${detalhes}
+
+---
+`;
+
+        fs.appendFileSync(arquivoLog, registro, "utf8");
+    } catch (erro) {
+        console.log("Erro ao registrar ação ATLAS:", erro.message);
+    }
+}
+
+function criarBackup(caminhoFinal, motivo = "backup") {
+    atualizarRaizAtlas();
+
+    if (!fs.existsSync(caminhoFinal)) return null;
+    if (fs.statSync(caminhoFinal).isDirectory()) return null;
+
+    const relativo = caminhoRelativoSeguro(caminhoFinal);
+
+    if (estaBloqueadoParaEdicao(relativo)) {
+        return null;
+    }
+
+    const pastaBackups = obterPastaBackups();
+
+    const timestamp = new Date()
+        .toISOString()
+        .replace(/:/g, "-")
+        .replace(/\./g, "-");
+
+    const nomeSeguro = relativo.replace(/[\\/]/g, "__");
+    const nomeBackup = `${timestamp}__${motivo}__${nomeSeguro}.bak`;
+    const caminhoBackup = path.join(pastaBackups, nomeBackup);
+
+    fs.copyFileSync(caminhoFinal, caminhoBackup);
+
+    registrarAcaoAtlas(
+        "BACKUP CRIADO",
+        `ARQUIVO ORIGINAL:\n${relativo}\n\nBACKUP:\n.atlas-backups/${nomeBackup}\n\nMOTIVO:\n${motivo}`
+    );
+
+    return nomeBackup;
+}
+
+function listarBackups() {
+    atualizarRaizAtlas();
+
+    const pastaBackups = obterPastaBackups();
+
+    const arquivos = fs
+        .readdirSync(pastaBackups)
+        .filter((arquivo) => arquivo.endsWith(".bak"))
+        .sort()
+        .reverse();
+
+    return arquivos;
+}
+
+function extrairArquivoOriginalDoBackup(nomeBackup) {
+    const partes = nomeBackup.split("__");
+
+    if (partes.length < 3) {
+        throw new Error("Nome de backup inválido.");
+    }
+
+    const partesArquivo = partes.slice(2);
+    let relativo = partesArquivo.join("/");
+
+    if (relativo.endsWith(".bak")) {
+        relativo = relativo.slice(0, -4);
+    }
+
+    return relativo;
+}
+
+async function restaurarBackup(comando) {
+    atualizarRaizAtlas();
+
+    const argumento = comando.replace(/^\/restaurar-backup\s*/i, "").trim();
+    const backups = listarBackups();
+
+    if (!argumento) {
+        if (!backups.length) {
+            return "Nenhum backup encontrado em .atlas-backups.";
+        }
+
+        return `
+BACKUPS DISPONÍVEIS
+
+Use:
+
+/restaurar-backup nome-do-backup
+
+ÚLTIMOS BACKUPS:
+
+${backups.slice(0, 20).join("\n")}
+`;
+    }
+
+    const nomeBackup = argumento;
+    const caminhoBackup = path.join(obterPastaBackups(), nomeBackup);
+
+    if (!fs.existsSync(caminhoBackup)) {
+        return `
+Backup não encontrado:
+
+${nomeBackup}
+`;
+    }
+
+    const arquivoOriginal = extrairArquivoOriginalDoBackup(nomeBackup);
+    validarPodeEditar(arquivoOriginal);
+
+    const caminhoOriginal = caminhoSeguro(arquivoOriginal);
+
+    if (fs.existsSync(caminhoOriginal)) {
+        criarBackup(caminhoOriginal, "antes-restaurar-backup");
+    }
+
+    fs.mkdirSync(path.dirname(caminhoOriginal), { recursive: true });
+    fs.copyFileSync(caminhoBackup, caminhoOriginal);
+
+    const documento = await vscode.workspace.openTextDocument(caminhoOriginal);
+    await vscode.window.showTextDocument(documento);
+
+    registrarAcaoAtlas(
+        "BACKUP RESTAURADO",
+        `BACKUP:\n${nomeBackup}\n\nARQUIVO RESTAURADO:\n${arquivoOriginal}`
+    );
+
+    return `
+Backup restaurado com sucesso.
+
+BACKUP:
+${nomeBackup}
+
+ARQUIVO:
+${arquivoOriginal}
+`;
+}
+
 function lerArquivosMarkdownRecursivo(caminhoPasta) {
     let conteudoCompleto = "";
 
@@ -176,7 +372,8 @@ function lerArquivosMarkdownRecursivo(caminhoPasta) {
         if (
             item.name === "node_modules" ||
             item.name === ".git" ||
-            item.name === ".vscode"
+            item.name === ".vscode" ||
+            item.name === ".atlas-backups"
         ) {
             continue;
         }
@@ -251,6 +448,11 @@ ${texto}
 `;
 
     fs.appendFileSync(arquivoMemoria, registro, "utf8");
+
+    registrarAcaoAtlas(
+        "MEMÓRIA SALVA",
+        `ARQUIVO:\n01 - Memória/memoria-principal.md\n\nCONTEÚDO:\n${texto}`
+    );
 
     return `
 Memória salva com sucesso.
@@ -408,7 +610,26 @@ function extrairCodigoLimpo(texto) {
     return texto.trim();
 }
 
-function listarArquivosRecursivo(caminhoPasta, limite = 120) {
+function extensaoPermitidaParaLeitura(nomeArquivo) {
+    const extensoesPermitidas = [
+        ".js",
+        ".json",
+        ".md",
+        ".html",
+        ".css",
+        ".txt",
+        ".env",
+        ".yml",
+        ".yaml",
+        ".ts",
+        ".jsx",
+        ".tsx"
+    ];
+
+    return extensoesPermitidas.includes(path.extname(nomeArquivo).toLowerCase());
+}
+
+function listarArquivosRecursivo(caminhoPasta, limite = 180) {
     const resultados = [];
 
     function andar(pasta) {
@@ -423,7 +644,8 @@ function listarArquivosRecursivo(caminhoPasta, limite = 120) {
             if (
                 item.name === "node_modules" ||
                 item.name === ".git" ||
-                item.name === ".vscode"
+                item.name === ".vscode" ||
+                item.name === ".atlas-backups"
             ) {
                 continue;
             }
@@ -436,6 +658,42 @@ function listarArquivosRecursivo(caminhoPasta, limite = 120) {
                 andar(caminhoItem);
             } else {
                 resultados.push(`📄 ${relativo}`);
+            }
+        }
+    }
+
+    andar(caminhoPasta);
+
+    return resultados.join("\n");
+}
+
+function listarPastasRecursivo(caminhoPasta, limite = 120) {
+    const resultados = [];
+
+    function andar(pasta, nivel = 0) {
+        if (resultados.length >= limite) return;
+        if (!fs.existsSync(pasta)) return;
+
+        const itens = fs.readdirSync(pasta, { withFileTypes: true });
+
+        for (const item of itens) {
+            if (resultados.length >= limite) break;
+
+            if (
+                item.name === "node_modules" ||
+                item.name === ".git" ||
+                item.name === ".vscode" ||
+                item.name === ".atlas-backups"
+            ) {
+                continue;
+            }
+
+            const caminhoItem = path.join(pasta, item.name);
+
+            if (item.isDirectory()) {
+                const relativo = path.relative(raizAtlas, caminhoItem);
+                resultados.push(`${"  ".repeat(nivel)}📁 ${relativo}`);
+                andar(caminhoItem, nivel + 1);
             }
         }
     }
@@ -460,7 +718,8 @@ function buscarTextoRecursivo(caminhoPasta, termo, limite = 80) {
             if (
                 item.name === "node_modules" ||
                 item.name === ".git" ||
-                item.name === ".vscode"
+                item.name === ".vscode" ||
+                item.name === ".atlas-backups"
             ) {
                 continue;
             }
@@ -472,11 +731,7 @@ function buscarTextoRecursivo(caminhoPasta, termo, limite = 80) {
                 continue;
             }
 
-            const extensoesPermitidas = [
-                ".js", ".json", ".md", ".html", ".css", ".txt", ".env"
-            ];
-
-            if (!extensoesPermitidas.includes(path.extname(item.name))) {
+            if (!extensaoPermitidaParaLeitura(item.name)) {
                 continue;
             }
 
@@ -491,6 +746,24 @@ function buscarTextoRecursivo(caminhoPasta, termo, limite = 80) {
     andar(caminhoPasta);
 
     return resultados;
+}
+
+function obterResumoProjeto() {
+    atualizarRaizAtlas();
+
+    const estrutura = listarArquivosRecursivo(raizAtlas, 220);
+    const pastas = listarPastasRecursivo(raizAtlas, 120);
+
+    return `
+RAIZ:
+${raizAtlas}
+
+PASTAS:
+${pastas}
+
+ESTRUTURA:
+${estrutura}
+`;
 }
 
 async function abrirArquivo(comando) {
@@ -529,6 +802,112 @@ ${path.relative(raizAtlas, caminhoFinal)}
 `;
 }
 
+async function abrirMultiplosArquivos(comando) {
+    const conteudoComando = comando.replace(/^\/abrir-multiplos\s*/i, "").trim();
+
+    if (!conteudoComando.includes("|")) {
+        return `
+Formato correto:
+
+/abrir-multiplos core/ai.js | core/files.js | core/logs.js
+`;
+    }
+
+    const arquivos = conteudoComando
+        .split("|")
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+    if (!arquivos.length) {
+        return "Nenhum arquivo informado.";
+    }
+
+    const abertos = [];
+    const erros = [];
+
+    for (const arquivo of arquivos) {
+        try {
+            const caminhoFinal = caminhoSeguro(arquivo);
+
+            if (!fs.existsSync(caminhoFinal)) {
+                erros.push(`Não encontrado: ${arquivo}`);
+                continue;
+            }
+
+            if (fs.statSync(caminhoFinal).isDirectory()) {
+                erros.push(`É uma pasta, não arquivo: ${arquivo}`);
+                continue;
+            }
+
+            const documento = await vscode.workspace.openTextDocument(caminhoFinal);
+            await vscode.window.showTextDocument(documento, { preview: false });
+
+            abertos.push(arquivo);
+        } catch (erro) {
+            erros.push(`${arquivo}: ${erro.message}`);
+        }
+    }
+
+    return `
+ABRIR MÚLTIPLOS
+
+ARQUIVOS ABERTOS:
+${abertos.length ? abertos.join("\n") : "(nenhum)"}
+
+ERROS:
+${erros.length ? erros.join("\n") : "(sem erros)"}
+`;
+}
+
+function lerArquivo(comando) {
+    const caminhoRelativo = comando.replace(/^\/ler-arquivo\s*/i, "").trim();
+
+    if (!caminhoRelativo) {
+        return `
+Formato correto:
+
+/ler-arquivo caminho/do/arquivo.js
+`;
+    }
+
+    const caminhoFinal = caminhoSeguro(caminhoRelativo);
+
+    if (!fs.existsSync(caminhoFinal)) {
+        return `
+Arquivo não encontrado:
+
+${caminhoRelativo}
+`;
+    }
+
+    if (fs.statSync(caminhoFinal).isDirectory()) {
+        return "Esse caminho é uma pasta. Use um arquivo.";
+    }
+
+    if (!extensaoPermitidaParaLeitura(caminhoFinal)) {
+        return "Tipo de arquivo não permitido para leitura.";
+    }
+
+    const conteudo = fs.readFileSync(caminhoFinal, "utf8");
+
+    const limite = 25000;
+    const conteudoLimitado =
+        conteudo.length > limite
+            ? conteudo.slice(0, limite) + "\n\n[ARQUIVO CORTADO POR LIMITE DE TAMANHO]"
+            : conteudo;
+
+    return `
+ARQUIVO:
+${path.relative(raizAtlas, caminhoFinal)}
+
+TAMANHO:
+${conteudo.length} caracteres
+
+CONTEÚDO:
+${conteudoLimitado}
+`;
+}
+
 async function criarArquivo(comando) {
     const conteudoComando = comando.replace(/^\/criar-arquivo\s*/i, "").trim();
 
@@ -541,13 +920,25 @@ Formato correto:
     }
 
     const [caminhoRelativo, ...partesConteudo] = conteudoComando.split("|");
+    const relativo = caminhoRelativo.trim();
     const conteudo = partesConteudo.join("|").trim();
 
-    const caminhoFinal = caminhoSeguro(caminhoRelativo.trim());
+    validarPodeEditar(relativo);
+
+    const caminhoFinal = caminhoSeguro(relativo);
     const pastaFinal = path.dirname(caminhoFinal);
+
+    if (fs.existsSync(caminhoFinal)) {
+        criarBackup(caminhoFinal, "antes-criar-arquivo-sobrescrever");
+    }
 
     fs.mkdirSync(pastaFinal, { recursive: true });
     fs.writeFileSync(caminhoFinal, conteudo, "utf8");
+
+    registrarAcaoAtlas(
+        "ARQUIVO CRIADO",
+        `CAMINHO:\n${path.relative(raizAtlas, caminhoFinal)}`
+    );
 
     return `
 Arquivo criado com sucesso.
@@ -569,9 +960,12 @@ Formato correto:
     }
 
     const [caminhoRelativo, ...partesInstrucao] = conteudoComando.split("|");
+    const relativo = caminhoRelativo.trim();
     const instrucao = partesInstrucao.join("|").trim();
 
-    const caminhoFinal = caminhoSeguro(caminhoRelativo.trim());
+    validarPodeEditar(relativo);
+
+    const caminhoFinal = caminhoSeguro(relativo);
 
     if (!fs.existsSync(caminhoFinal)) {
         return `
@@ -593,6 +987,8 @@ IMPORTANTE:
 - Não use markdown se não for necessário.
 - Não coloque comentários extras fora do arquivo.
 - Preserve o objetivo original do arquivo.
+- Não apague funcionalidades existentes sem necessidade.
+- Mantenha o arquivo funcional.
 
 ARQUIVO:
 ${path.relative(raizAtlas, caminhoFinal)}
@@ -608,10 +1004,21 @@ ${instrucao}
 
     const novoConteudo = extrairCodigoLimpo(respostaIA);
 
+    if (!novoConteudo.trim()) {
+        return "A IA retornou conteúdo vazio. Edição cancelada.";
+    }
+
+    const backup = criarBackup(caminhoFinal, "antes-editar-arquivo");
+
     fs.writeFileSync(caminhoFinal, novoConteudo, "utf8");
 
     const documento = await vscode.workspace.openTextDocument(caminhoFinal);
     await vscode.window.showTextDocument(documento);
+
+    registrarAcaoAtlas(
+        "ARQUIVO EDITADO",
+        `CAMINHO:\n${path.relative(raizAtlas, caminhoFinal)}\n\nBACKUP:\n${backup || "não criado"}\n\nINSTRUÇÃO:\n${instrucao}`
+    );
 
     return `
 Arquivo editado e salvo com sucesso.
@@ -619,8 +1026,62 @@ Arquivo editado e salvo com sucesso.
 CAMINHO:
 ${path.relative(raizAtlas, caminhoFinal)}
 
+BACKUP:
+${backup ? `.atlas-backups/${backup}` : "não criado"}
+
 INSTRUÇÃO EXECUTADA:
 ${instrucao}
+`;
+}
+
+async function escreverArquivoCompleto(comando) {
+    const match = comando.match(/^\/escrever-arquivo\s+([^\n]+)\n([\s\S]*)$/i);
+
+    if (!match) {
+        return `
+Formato correto:
+
+/escrever-arquivo caminho/do/arquivo.js
+CONTEÚDO COMPLETO DO ARQUIVO
+`;
+    }
+
+    const relativo = match[1].trim();
+    const novoConteudo = match[2];
+
+    validarPodeEditar(relativo);
+
+    if (!novoConteudo.trim()) {
+        return "Conteúdo vazio. Escrita cancelada.";
+    }
+
+    const caminhoFinal = caminhoSeguro(relativo);
+
+    let backup = null;
+
+    if (fs.existsSync(caminhoFinal)) {
+        backup = criarBackup(caminhoFinal, "antes-escrever-arquivo");
+    }
+
+    fs.mkdirSync(path.dirname(caminhoFinal), { recursive: true });
+    fs.writeFileSync(caminhoFinal, novoConteudo, "utf8");
+
+    const documento = await vscode.workspace.openTextDocument(caminhoFinal);
+    await vscode.window.showTextDocument(documento);
+
+    registrarAcaoAtlas(
+        "ARQUIVO ESCRITO COMPLETO",
+        `CAMINHO:\n${path.relative(raizAtlas, caminhoFinal)}\n\nBACKUP:\n${backup || "não existia arquivo anterior"}`
+    );
+
+    return `
+Arquivo escrito com sucesso.
+
+CAMINHO:
+${path.relative(raizAtlas, caminhoFinal)}
+
+BACKUP:
+${backup ? `.atlas-backups/${backup}` : "não existia arquivo anterior"}
 `;
 }
 
@@ -635,6 +1096,8 @@ Formato correto:
 `;
     }
 
+    validarPodeEditar(caminhoRelativo);
+
     const caminhoFinal = caminhoSeguro(caminhoRelativo);
 
     if (!fs.existsSync(caminhoFinal)) {
@@ -645,13 +1108,23 @@ Formato correto:
         return "Por segurança, este comando não deleta pastas.";
     }
 
+    const backup = criarBackup(caminhoFinal, "antes-deletar-arquivo");
+
     fs.unlinkSync(caminhoFinal);
+
+    registrarAcaoAtlas(
+        "ARQUIVO DELETADO",
+        `CAMINHO:\n${caminhoRelativo}\n\nBACKUP:\n${backup || "não criado"}`
+    );
 
     return `
 Arquivo deletado com sucesso.
 
 CAMINHO:
 ${caminhoRelativo}
+
+BACKUP:
+${backup ? `.atlas-backups/${backup}` : "não criado"}
 `;
 }
 
@@ -676,7 +1149,11 @@ Formato correto:
 `;
     }
 
-    const caminhoFinal = caminhoSeguro(partes[0]);
+    const relativo = partes[0];
+
+    validarPodeEditar(relativo);
+
+    const caminhoFinal = caminhoSeguro(relativo);
     const antigo = partes[1];
     const novo = partes.slice(2).join("|");
 
@@ -690,15 +1167,25 @@ Formato correto:
         return `Texto antigo não encontrado no arquivo: ${partes[0]}`;
     }
 
+    const backup = criarBackup(caminhoFinal, "antes-substituir-texto");
+
     const atualizado = conteudoAtual.split(antigo).join(novo);
 
     fs.writeFileSync(caminhoFinal, atualizado, "utf8");
+
+    registrarAcaoAtlas(
+        "TEXTO SUBSTITUÍDO",
+        `ARQUIVO:\n${partes[0]}\n\nBACKUP:\n${backup || "não criado"}\n\nTEXTO ANTIGO:\n${antigo}\n\nTEXTO NOVO:\n${novo}`
+    );
 
     return `
 Texto substituído com sucesso.
 
 ARQUIVO:
 ${partes[0]}
+
+BACKUP:
+${backup ? `.atlas-backups/${backup}` : "não criado"}
 `;
 }
 
@@ -743,6 +1230,11 @@ ${alias} npm test
                 maxBuffer: 1024 * 1024
             },
             (erro, stdout, stderr) => {
+                registrarAcaoAtlas(
+                    "COMANDO EXECUTADO",
+                    `COMANDO:\n${comandoShell}\n\nSTATUS:\n${erro ? "Finalizado com erro" : "Finalizado com sucesso"}`
+                );
+
                 resolve(`
 COMANDO EXECUTADO:
 ${comandoShell}
@@ -785,6 +1277,28 @@ function extrairJson(texto) {
     throw new Error("Não consegui extrair JSON válido da resposta da IA.");
 }
 
+function validarPlanoAgente(plano) {
+    if (!plano || !Array.isArray(plano.acoes)) {
+        throw new Error("Plano inválido. A propriedade 'acoes' precisa ser uma lista.");
+    }
+
+    for (const acao of plano.acoes) {
+        const tipo = String(acao.tipo || "").toLowerCase();
+
+        if (!["criar", "editar"].includes(tipo)) {
+            throw new Error(`Tipo de ação inválido: ${tipo}`);
+        }
+
+        if (!acao.caminho) {
+            throw new Error("Existe uma ação sem caminho.");
+        }
+
+        validarPodeEditar(acao.caminho);
+    }
+
+    return true;
+}
+
 async function criarPlanoAgente(comando) {
     const pedido = comando.replace(/^\/agent\s*/i, "").trim();
 
@@ -796,7 +1310,7 @@ Formato correto:
 `;
     }
 
-    const estrutura = listarArquivosRecursivo(raizAtlas, 180);
+    const estrutura = listarArquivosRecursivo(raizAtlas, 220);
 
     const respostaIA = await chamarIA(
         `
@@ -811,7 +1325,7 @@ REGRAS IMPORTANTES:
 - Responda APENAS JSON válido.
 - Não use markdown.
 - Não explique fora do JSON.
-- Nunca edite package.json, .env, package-lock.json ou arquivos em node_modules.
+- Nunca edite package.json, .env, package-lock.json, arquivos em node_modules, .git, .vscode, .obsidian ou .atlas-backups.
 - Prefira criar arquivos novos em pastas seguras.
 - Cada ação deve ter:
   - tipo: "criar" ou "editar"
@@ -844,6 +1358,7 @@ FORMATO EXATO:
 
     try {
         plano = extrairJson(respostaIA);
+        validarPlanoAgente(plano);
     } catch (erro) {
         return `
 Não consegui montar um plano seguro.
@@ -856,15 +1371,11 @@ ${respostaIA}
 `;
     }
 
-    if (!plano || !Array.isArray(plano.acoes)) {
-        return "A IA não retornou um plano válido.";
-    }
-
     planoPendente = plano;
 
     const listaAcoes = plano.acoes
         .map((acao, index) => {
-            return `${index + 1}. ${acao.tipo.toUpperCase()} - ${acao.caminho}\n   ${acao.descricao || ""}`;
+            return `${index + 1}. ${String(acao.tipo || "").toUpperCase()} - ${acao.caminho}\n   ${acao.descricao || ""}`;
         })
         .join("\n\n");
 
@@ -907,12 +1418,9 @@ async function confirmarPlanoAgente() {
             continue;
         }
 
-        if (
-            caminho.includes("node_modules") ||
-            caminho.endsWith(".env") ||
-            caminho.endsWith("package.json") ||
-            caminho.endsWith("package-lock.json")
-        ) {
+        try {
+            validarPodeEditar(caminho);
+        } catch (erro) {
             resultados.push(`Bloqueado por segurança: ${caminho}`);
             continue;
         }
@@ -920,8 +1428,19 @@ async function confirmarPlanoAgente() {
         const caminhoFinal = caminhoSeguro(caminho);
 
         if (tipo === "criar") {
+            let backup = null;
+
+            if (fs.existsSync(caminhoFinal)) {
+                backup = criarBackup(caminhoFinal, "agent-antes-criar-sobrescrever");
+            }
+
             fs.mkdirSync(path.dirname(caminhoFinal), { recursive: true });
             fs.writeFileSync(caminhoFinal, acao.conteudo || "", "utf8");
+
+            registrarAcaoAtlas(
+                "AGENTE CRIOU ARQUIVO",
+                `CAMINHO:\n${caminho}\n\nBACKUP:\n${backup || "não existia arquivo anterior"}`
+            );
 
             resultados.push(`Criado: ${caminho}`);
             continue;
@@ -943,6 +1462,8 @@ IMPORTANTE:
 - Devolva APENAS o conteúdo final completo.
 - Não use markdown.
 - Não explique.
+- Não apague funcionalidades existentes sem necessidade.
+- Preserve o objetivo original do arquivo.
 
 ARQUIVO:
 ${caminho}
@@ -956,7 +1477,21 @@ ${acao.instrucao || acao.descricao || "Melhore o arquivo sem alterar seu objetiv
                 "gemini"
             );
 
-            fs.writeFileSync(caminhoFinal, extrairCodigoLimpo(respostaIA), "utf8");
+            const novoConteudo = extrairCodigoLimpo(respostaIA);
+
+            if (!novoConteudo.trim()) {
+                resultados.push(`Edição cancelada por conteúdo vazio: ${caminho}`);
+                continue;
+            }
+
+            const backup = criarBackup(caminhoFinal, "agent-antes-editar");
+
+            fs.writeFileSync(caminhoFinal, novoConteudo, "utf8");
+
+            registrarAcaoAtlas(
+                "AGENTE EDITOU ARQUIVO",
+                `CAMINHO:\n${caminho}\n\nBACKUP:\n${backup || "não criado"}\n\nINSTRUÇÃO:\n${acao.instrucao || acao.descricao || ""}`
+            );
 
             resultados.push(`Editado: ${caminho}`);
             continue;
@@ -971,6 +1506,122 @@ ${acao.instrucao || acao.descricao || "Melhore o arquivo sem alterar seu objetiv
 PLANO EXECUTADO COM SUCESSO
 
 ${resultados.join("\n")}
+`;
+}
+
+async function agentAuto(comando) {
+    const pedido = comando.replace(/^\/agent-auto\s*/i, "").trim();
+
+    if (!pedido) {
+        return `
+Formato correto:
+
+/agent-auto descreva exatamente o que a ATLAS deve criar ou alterar
+`;
+    }
+
+    const resumoProjeto = obterResumoProjeto();
+
+    const respostaIA = await chamarIA(
+        `
+Você é a ATLAS em modo AGENT AUTO.
+
+O usuário quer:
+${pedido}
+
+Você deve analisar a estrutura do projeto e executar um plano de alteração de arquivos.
+
+REGRAS DE SEGURANÇA:
+- Responda APENAS JSON válido.
+- Não use markdown.
+- Não explique fora do JSON.
+- Nunca altere .env, package-lock.json, arquivos em node_modules, .git, .vscode, .obsidian ou .atlas-backups.
+- Evite alterar package.json, a menos que seja absolutamente necessário. Se precisar, não altere: apenas mencione no resumo.
+- Prefira criar arquivos novos e seguros.
+- Para cada arquivo criado, envie o conteúdo completo.
+- Para cada arquivo editado, envie instrução clara.
+- Não delete arquivos.
+- Não crie scripts perigosos.
+- Não use comandos de terminal.
+
+TIPOS ACEITOS:
+- "criar"
+- "editar"
+
+FORMATO EXATO:
+{
+  "titulo": "nome curto da tarefa",
+  "resumo": "o que será feito",
+  "acoes": [
+    {
+      "tipo": "criar",
+      "caminho": "caminho/arquivo.js",
+      "descricao": "descrição",
+      "conteudo": "conteúdo completo do arquivo"
+    },
+    {
+      "tipo": "editar",
+      "caminho": "caminho/existente.js",
+      "descricao": "descrição",
+      "instrucao": "instrução exata da edição"
+    }
+  ]
+}
+
+PROJETO:
+${resumoProjeto}
+`,
+        "gemini"
+    );
+
+    let plano;
+
+    try {
+        plano = extrairJson(respostaIA);
+        validarPlanoAgente(plano);
+    } catch (erro) {
+        return `
+AGENT AUTO CANCELADO
+
+Não consegui gerar um plano seguro.
+
+ERRO:
+${erro.message}
+
+RESPOSTA BRUTA:
+${respostaIA}
+`;
+    }
+
+    planoPendente = plano;
+
+    const previa = plano.acoes
+        .map((acao, index) => {
+            return `${index + 1}. ${String(acao.tipo || "").toUpperCase()} - ${acao.caminho}\n   ${acao.descricao || ""}`;
+        })
+        .join("\n\n");
+
+    const resultadoExecucao = await confirmarPlanoAgente();
+
+    registrarAcaoAtlas(
+        "AGENT AUTO EXECUTADO",
+        `PEDIDO:\n${pedido}\n\nPLANO:\n${JSON.stringify(plano, null, 2)}`
+    );
+
+    return `
+AGENT AUTO EXECUTADO
+
+TÍTULO:
+${plano.titulo || "Sem título"}
+
+RESUMO:
+${plano.resumo || "Sem resumo."}
+
+AÇÕES PLANEJADAS:
+${previa}
+
+RESULTADO:
+${resultadoExecucao}
 `;
 }
 
@@ -1000,14 +1651,21 @@ GERAIS:
 /arquivo-atual
 /selecao
 /listar-arquivos
+/listar-pastas
 /buscar-texto termo
 
 ARQUIVOS:
 /abrir caminho
+/abrir-multiplos arquivo1 | arquivo2 | arquivo3
+/ler-arquivo caminho
 /criar-arquivo caminho | conteúdo
 /editar-arquivo caminho | instrução
+/escrever-arquivo caminho
+CONTEÚDO COMPLETO DO ARQUIVO
 /substituir-texto arquivo | texto antigo | texto novo
 /deletar-arquivo caminho
+/restaurar-backup
+/restaurar-backup nome-do-backup
 
 TERMINAL:
 /terminal comando
@@ -1024,8 +1682,16 @@ IA:
 
 AGENTE:
 /agent pedido complexo
+/agent-auto pedido complexo
 /confirmar
 /cancelar
+
+FASE 3:
+- Agent Executor com contexto real do projeto
+- /ler-arquivo
+- /abrir-multiplos
+- /listar-pastas
+- /agent-auto
 `;
     }
 
@@ -1039,8 +1705,13 @@ STATUS DA ATLAS
 - Fallback OpenAI → Gemini: ativo
 - Executor local: ativo
 - Modo agente: ativo com confirmação
+- Agent Auto: ativo
 - Comandos operacionais: ativos
 - Memória local: ativa
+- Fase 2B: edição segura ativa
+- Fase 3: Agent Executor real ativo
+- Backup automático: ativo
+- Log de ações: ativo
 - Raiz ATLAS: ${raizAtlas}
 `;
     }
@@ -1130,6 +1801,28 @@ ${listarArquivosRecursivo(caminhoPasta)}
 `;
     }
 
+    if (comando.startsWith("/listar-pastas")) {
+        const pasta = comando.replace(/^\/listar-pastas\s*/i, "").trim() || ".";
+        const caminhoPasta = caminhoSeguro(pasta);
+
+        if (!fs.existsSync(caminhoPasta)) {
+            return `
+Pasta não encontrada:
+
+${pasta}
+
+Raiz atual:
+${raizAtlas}
+`;
+        }
+
+        return `
+PASTAS ENCONTRADAS:
+
+${listarPastasRecursivo(caminhoPasta)}
+`;
+    }
+
     if (comando.startsWith("/buscar-texto ")) {
         const termo = comando.replace(/^\/buscar-texto\s*/i, "").trim();
 
@@ -1151,8 +1844,16 @@ ${resultados.join("\n")}
 `;
     }
 
+    if (comando.startsWith("/abrir-multiplos ")) {
+        return await abrirMultiplosArquivos(comando);
+    }
+
     if (comando.startsWith("/abrir ")) {
         return await abrirArquivo(comando);
+    }
+
+    if (comando.startsWith("/ler-arquivo ")) {
+        return lerArquivo(comando);
     }
 
     if (comando.startsWith("/criar-arquivo ")) {
@@ -1163,12 +1864,20 @@ ${resultados.join("\n")}
         return await editarArquivo(comando);
     }
 
+    if (comando.startsWith("/escrever-arquivo ")) {
+        return await escreverArquivoCompleto(comando);
+    }
+
     if (comando.startsWith("/deletar-arquivo ")) {
         return deletarArquivo(comando);
     }
 
     if (comando.startsWith("/substituir-texto ")) {
         return substituirTexto(comando);
+    }
+
+    if (comando === "/restaurar-backup" || comando === "/backups" || comando.startsWith("/restaurar-backup ")) {
+        return await restaurarBackup(comando.replace(/^\/backups/i, "/restaurar-backup"));
     }
 
     if (comando.startsWith("/terminal ")) {
@@ -1181,6 +1890,10 @@ ${resultados.join("\n")}
 
     if (comando.startsWith("/executar ")) {
         return await executarComando(comando, "/executar");
+    }
+
+    if (comando.startsWith("/agent-auto ")) {
+        return await agentAuto(comando);
     }
 
     if (comando.startsWith("/agent ")) {
@@ -1360,6 +2073,17 @@ button:hover { filter: brightness(1.15); }
     color: #22c55e;
     margin-bottom: 15px;
 }
+
+.badge {
+    display: inline-block;
+    background: #0f172a;
+    border: 1px solid #22c55e;
+    color: #86efac;
+    padding: 5px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    margin-bottom: 12px;
+}
 </style>
 </head>
 
@@ -1368,7 +2092,11 @@ button:hover { filter: brightness(1.15); }
 <h1>ATLAS IA</h1>
 
 <div class="subtitle">
-Painel interno do VS Code — Agent Operacional 2A
+Painel interno do VS Code — Agent Executor Fase 3
+</div>
+
+<div class="badge">
+Fase 3 ativa: agent executor + leitura real + edição segura
 </div>
 
 <div class="status">
@@ -1377,7 +2105,7 @@ Painel interno do VS Code — Agent Operacional 2A
 
 <textarea
 id="input"
-placeholder="Digite aqui. Ex: /abrir core/ai.js"
+placeholder="Digite aqui. Ex: /ler-arquivo core/ai.js"
 ></textarea>
 
 <br>
@@ -1389,11 +2117,15 @@ placeholder="Digite aqui. Ex: /abrir core/ai.js"
     <button onclick="atalho('/status')">/status</button>
     <button onclick="atalho('/memoria')">/memoria</button>
     <button onclick="atalho('/arquivo-atual')">/arquivo-atual</button>
+    <button onclick="atalho('/listar-pastas')">/pastas</button>
+    <button onclick="atalho('/listar-arquivos')">/listar</button>
+    <button onclick="atalho('/ler-arquivo core/ai.js')">/ler</button>
     <button onclick="atalho('/abrir core/ai.js')">/abrir</button>
-    <button onclick="atalho('/listar-arquivos core')">/listar</button>
     <button onclick="atalho('/buscar-texto askAI')">/buscar</button>
     <button onclick="atalho('/ia-arquivo explique esse arquivo')">/ia-arquivo</button>
+    <button onclick="atalho('/backups')">/backups</button>
     <button onclick="atalho('/agent criar um módulo simples de exemplo')">/agent</button>
+    <button onclick="atalho('/agent-auto criar um módulo simples de exemplo')">/agent-auto</button>
 </div>
 
 <div id="resposta">
