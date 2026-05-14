@@ -176,6 +176,7 @@ function estaBloqueadoParaEdicao(caminhoRelativo) {
         ".git/",
         ".vscode/",
         ".atlas-backups/",
+        ".atlas-snapshots/",
         ".obsidian/",
         ".env",
         "package-lock.json"
@@ -359,6 +360,72 @@ ${arquivoOriginal}
 `;
 }
 
+function criarSnapshotProjeto() {
+    atualizarRaizAtlas();
+
+    const pastaSnapshots = path.join(raizAtlas, ".atlas-snapshots");
+
+    const ignorar = [
+        "node_modules",
+        ".git",
+        ".obsidian",
+        ".atlas-backups",
+        ".atlas-snapshots"
+    ];
+
+    function dataNomeSnapshot() {
+        return new Date()
+            .toISOString()
+            .replace(/:/g, "-")
+            .replace(/\./g, "-");
+    }
+
+    function copiarPastaSnapshot(origem, destinoFinal) {
+        if (!fs.existsSync(destinoFinal)) {
+            fs.mkdirSync(destinoFinal, { recursive: true });
+        }
+
+        const itens = fs.readdirSync(origem, { withFileTypes: true });
+
+        for (const item of itens) {
+            if (ignorar.includes(item.name)) continue;
+
+            const caminhoOrigem = path.join(origem, item.name);
+            const caminhoDestino = path.join(destinoFinal, item.name);
+
+            if (item.isDirectory()) {
+                copiarPastaSnapshot(caminhoOrigem, caminhoDestino);
+            } else {
+                fs.copyFileSync(caminhoOrigem, caminhoDestino);
+            }
+        }
+    }
+
+    if (!fs.existsSync(pastaSnapshots)) {
+        fs.mkdirSync(pastaSnapshots, { recursive: true });
+    }
+
+    const nomeSnapshot = "snapshot-" + dataNomeSnapshot();
+    const caminhoSnapshot = path.join(pastaSnapshots, nomeSnapshot);
+
+    copiarPastaSnapshot(raizAtlas, caminhoSnapshot);
+
+    registrarAcaoAtlas(
+        "SNAPSHOT MANUAL CRIADO",
+        `SNAPSHOT:\n.atlas-snapshots/${nomeSnapshot}`
+    );
+
+    return `
+Snapshot criado com sucesso.
+
+PASTA:
+.atlas-snapshots/${nomeSnapshot}
+
+CAMINHO COMPLETO:
+${caminhoSnapshot}
+`;
+}
+
 function lerArquivosMarkdownRecursivo(caminhoPasta) {
     let conteudoCompleto = "";
 
@@ -373,7 +440,8 @@ function lerArquivosMarkdownRecursivo(caminhoPasta) {
             item.name === "node_modules" ||
             item.name === ".git" ||
             item.name === ".vscode" ||
-            item.name === ".atlas-backups"
+            item.name === ".atlas-backups" ||
+            item.name === ".atlas-snapshots"
         ) {
             continue;
         }
@@ -645,7 +713,8 @@ function listarArquivosRecursivo(caminhoPasta, limite = 180) {
                 item.name === "node_modules" ||
                 item.name === ".git" ||
                 item.name === ".vscode" ||
-                item.name === ".atlas-backups"
+                item.name === ".atlas-backups" ||
+                item.name === ".atlas-snapshots"
             ) {
                 continue;
             }
@@ -683,7 +752,8 @@ function listarPastasRecursivo(caminhoPasta, limite = 120) {
                 item.name === "node_modules" ||
                 item.name === ".git" ||
                 item.name === ".vscode" ||
-                item.name === ".atlas-backups"
+                item.name === ".atlas-backups" ||
+                item.name === ".atlas-snapshots"
             ) {
                 continue;
             }
@@ -719,7 +789,8 @@ function buscarTextoRecursivo(caminhoPasta, termo, limite = 80) {
                 item.name === "node_modules" ||
                 item.name === ".git" ||
                 item.name === ".vscode" ||
-                item.name === ".atlas-backups"
+                item.name === ".atlas-backups" ||
+                item.name === ".atlas-snapshots"
             ) {
                 continue;
             }
@@ -1653,6 +1724,7 @@ GERAIS:
 /listar-arquivos
 /listar-pastas
 /buscar-texto termo
+/snapshot
 
 ARQUIVOS:
 /abrir caminho
@@ -1686,7 +1758,8 @@ AGENTE:
 /confirmar
 /cancelar
 
-FASE 3:
+FASE 4.2:
+- Snapshot nativo com /snapshot
 - Agent Executor com contexto real do projeto
 - /ler-arquivo
 - /abrir-multiplos
@@ -1710,7 +1783,9 @@ STATUS DA ATLAS
 - Memória local: ativa
 - Fase 2B: edição segura ativa
 - Fase 3: Agent Executor real ativo
+- Fase 4.2: Snapshot nativo ativo
 - Backup automático: ativo
+- Snapshot manual: ativo
 - Log de ações: ativo
 - Raiz ATLAS: ${raizAtlas}
 `;
@@ -1744,6 +1819,10 @@ ${raizAtlas}
 
     if (comando.startsWith("/salvar-memoria ")) {
         return salvarMemoria(comando);
+    }
+
+    if (comando === "/snapshot") {
+        return criarSnapshotProjeto();
     }
 
     if (comando === "/arquivo-atual") {
@@ -2092,11 +2171,11 @@ button:hover { filter: brightness(1.15); }
 <h1>ATLAS IA</h1>
 
 <div class="subtitle">
-Painel interno do VS Code — Agent Executor Fase 3
+Painel interno do VS Code — Agent Executor Fase 4.2
 </div>
 
 <div class="badge">
-Fase 3 ativa: agent executor + leitura real + edição segura
+Fase 4.2 ativa: snapshot nativo + agent executor + edição segura
 </div>
 
 <div class="status">
@@ -2105,7 +2184,7 @@ Fase 3 ativa: agent executor + leitura real + edição segura
 
 <textarea
 id="input"
-placeholder="Digite aqui. Ex: /ler-arquivo core/ai.js"
+placeholder="Digite aqui. Ex: /snapshot"
 ></textarea>
 
 <br>
@@ -2116,6 +2195,7 @@ placeholder="Digite aqui. Ex: /ler-arquivo core/ai.js"
     <button onclick="atalho('/help')">/help</button>
     <button onclick="atalho('/status')">/status</button>
     <button onclick="atalho('/memoria')">/memoria</button>
+    <button onclick="atalho('/snapshot')">/snapshot</button>
     <button onclick="atalho('/arquivo-atual')">/arquivo-atual</button>
     <button onclick="atalho('/listar-pastas')">/pastas</button>
     <button onclick="atalho('/listar-arquivos')">/listar</button>
