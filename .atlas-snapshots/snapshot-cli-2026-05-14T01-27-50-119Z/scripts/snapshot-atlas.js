@@ -1,0 +1,57 @@
+import fs from "fs";
+import path from "path";
+
+const raiz = process.cwd();
+const destino = path.join(raiz, ".atlas-snapshots");
+
+const ignorar = [
+  "node_modules",
+  ".git",
+  ".obsidian",
+  ".atlas-backups",
+  ".atlas-snapshots"
+];
+
+function dataNome() {
+  return new Date()
+    .toISOString()
+    .replace(/:/g, "-")
+    .replace(/\./g, "-");
+}
+
+function copiarPasta(origem, destinoFinal) {
+  if (!fs.existsSync(destinoFinal)) {
+    fs.mkdirSync(destinoFinal, { recursive: true });
+  }
+
+  const itens = fs.readdirSync(origem, { withFileTypes: true });
+
+  for (const item of itens) {
+    if (ignorar.includes(item.name)) continue;
+
+    const caminhoOrigem = path.join(origem, item.name);
+    const caminhoDestino = path.join(destinoFinal, item.name);
+
+    if (item.isDirectory()) {
+      copiarPasta(caminhoOrigem, caminhoDestino);
+    } else {
+      fs.copyFileSync(caminhoOrigem, caminhoDestino);
+    }
+  }
+}
+
+function executarSnapshot() {
+  if (!fs.existsSync(destino)) {
+    fs.mkdirSync(destino, { recursive: true });
+  }
+
+  const nomeSnapshot = `snapshot-${dataNome()}`;
+  const pastaSnapshot = path.join(destino, nomeSnapshot);
+
+  copiarPasta(raiz, pastaSnapshot);
+
+  console.log("Snapshot criado com sucesso:");
+  console.log(pastaSnapshot);
+}
+
+executarSnapshot();
