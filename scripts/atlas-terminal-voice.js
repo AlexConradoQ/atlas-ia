@@ -2,23 +2,17 @@ import readline from "readline";
 import { askAI } from "../core/ai.js";
 import { speak } from "../core/voice.js";
 import { carregarMemoria } from "../core/memory.js";
-import {
-    adicionarNaSessao,
-    obterMemoriaSessao,
-    limparMemoriaSessao
-} from "../core/session-memory.js";
+import { limparMemoriaSessao } from "../core/session-memory.js";
+import { processarIntentLocal } from "../core/intents.js";
 
 import { spawn, execFile } from "child_process";
 import path from "path";
+import fs from "fs";
 
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
-
-const memoriaLocal = {
-    nome: null
-};
 
 function tocarAudio(audioPath) {
     return new Promise((resolve) => {
@@ -30,30 +24,27 @@ function tocarAudio(audioPath) {
 Add-Type -AssemblyName presentationCore;
 $player = New-Object System.Windows.Media.MediaPlayer;
 $player.Open([Uri]"${caminho.replace(/\\/g, "\\\\")}");
-
 while ($player.NaturalDuration.HasTimeSpan -eq $false) {
-    Start-Sleep -Milliseconds 100;
+Start-Sleep -Milliseconds 100;
 }
-
 $duration = $player.NaturalDuration.TimeSpan.TotalSeconds;
 $player.Play();
-
 Start-Sleep -Seconds ([Math]::Ceiling($duration) + 1);
-
 $player.Stop();
 $player.Close();
 `;
 
-        const processo = execFile("powershell", [
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            comando
-        ]);
-
-        processo.on("close", () => resolve());
-        processo.on("error", () => resolve());
+        execFile(
+            "powershell",
+            [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                comando
+            ],
+            () => resolve()
+        );
     });
 }
 
@@ -71,12 +62,12 @@ function executarPython(script) {
 
         let saida = "";
 
-        processo.stdout.on("data", (data) => {
-            saida += data.toString();
+        processo.stdout.on("data", d => {
+            saida += d.toString();
         });
 
-        processo.stderr.on("data", (data) => {
-            saida += data.toString();
+        processo.stderr.on("data", d => {
+            saida += d.toString();
         });
 
         processo.on("close", () => {
@@ -85,12 +76,12 @@ function executarPython(script) {
     });
 }
 
-function extrairTextoMicrofone(saida) {
+function extrairTexto(saida) {
     if (!saida) return null;
 
     const linhas = saida
         .split("\n")
-        .map(linha => linha.trim())
+        .map(l => l.trim())
         .filter(Boolean);
 
     for (const linha of linhas) {
@@ -103,213 +94,250 @@ function extrairTextoMicrofone(saida) {
         }
     }
 
-    if (
-        saida.includes("NAO_ENTENDI") ||
-        saida.includes("ERRO")
-    ) {
-        return null;
-    }
-
-    return linhas[linhas.length - 1] || null;
-}
-
-function extrairNome(texto) {
-    const padroes = [
-        /meu nome é\s+(.+)/i,
-        /meu nome e\s+(.+)/i,
-        /eu me chamo\s+(.+)/i,
-        /pode me chamar de\s+(.+)/i,
-        /me chama de\s+(.+)/i
-    ];
-
-    for (const padrao of padroes) {
-        const match = texto.match(padrao);
-
-        if (match && match[1]) {
-            return match[1].replace(/[.!?]/g, "").trim();
-        }
-    }
-
     return null;
 }
 
-function respostaLocal(mensagem) {
-    const texto = mensagem.toLowerCase().trim();
+function normalizarBusca(texto) {
+    return texto
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\bbarra\b/g, " ")
+        .replace(/\bponto\b/g, " ")
+        .replace(/\btraco\b/g, " ")
+        .replace(/\bhifen\b/g, " ")
+        .replace(/\bjs\b/g, " js ")
+        .replace(/\//g, " ")
+        .replace(/\\/g, " ")
+        .replace(/\./g, " ")
+        .replace(/-/g, " ")
+        .replace(/_/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
 
-    const nomeDetectado = extrairNome(mensagem);
+function listarArquivosProjeto() {
+    const encontrados = [];
 
-    if (nomeDetectado) {
-        memoriaLocal.nome = nomeDetectado;
-        return `Entendido. Vou te chamar de ${memoriaLocal.nome}.`;
+    function scan(dir) {
+        const itens = fs.readdirSync(dir, { withFileTypes: true });
+
+        for (const item of itens) {
+            if (
+                item.name === "node_modules" ||
+                item.name === ".git" ||
+                item.name === ".atlas-snapshots" ||
+                item.name === ".atlas-backups"
+            ) {
+                continue;
+            }
+
+            const completo = path.join(dir, item.name);
+
+            if (item.isDirectory()) {
+                scan(completo);
+            } else {
+                encontrados.push(completo);
+            }
+        }
     }
 
-    if (
-        texto.includes("qual meu nome") ||
-        texto.includes("qual o meu nome") ||
-        texto.includes("como eu me chamo") ||
-        texto.includes("quem sou eu")
-    ) {
-        if (memoriaLocal.nome) {
-            return `Seu nome é ${memoriaLocal.nome}.`;
+    scan(process.cwd());
+
+    return encontrados;
+}
+
+function pontuarArquivo(caminhoArquivo, busca) {
+    const relativo = path.relative(process.cwd(), caminhoArquivo);
+    const alvo = normalizarBusca(relativo);
+    const nome = normalizarBusca(path.basename(caminhoArquivo));
+
+    const termos = normalizarBusca(busca)
+        .split(" ")
+        .filter(Boolean);
+
+    let pontos = 0;
+
+    for (const termo of termos) {
+        if (alvo.includes(termo)) pontos += 2;
+        if (nome.includes(termo)) pontos += 3;
+    }
+
+    if (alvo.includes(normalizarBusca(busca))) pontos += 10;
+    if (nome.includes(normalizarBusca(busca))) pontos += 15;
+
+    return pontos;
+}
+
+function localizarArquivo(busca) {
+    const arquivos = listarArquivosProjeto();
+
+    const ranqueados = arquivos
+        .map(arquivo => ({
+            arquivo,
+            pontos: pontuarArquivo(arquivo, busca)
+        }))
+        .filter(item => item.pontos > 0)
+        .sort((a, b) => b.pontos - a.pontos);
+
+    return ranqueados[0]?.arquivo || null;
+}
+
+function abrirNoVSCode(arquivoFalado) {
+    return new Promise((resolve) => {
+        const encontrado = localizarArquivo(arquivoFalado);
+
+        if (!encontrado) {
+            resolve({
+                ok: false,
+                caminho: null
+            });
+            return;
         }
 
-        return "Ainda não sei seu nome nesta sessão.";
-    }
-
-    if (
-        texto.includes("qual seu nome") ||
-        texto.includes("qual o seu nome") ||
-        texto.includes("seu nome") ||
-        texto.includes("quem é você") ||
-        texto.includes("quem é vc")
-    ) {
-        return "Eu sou a ATLAS, sua assistente pessoal.";
-    }
-
-    if (texto.includes("status")) {
-        return "Sistema ATLAS operacional. Wake mode ativo, microfone ativo, voz ativa e memória local ativa.";
-    }
-
-    if (
-        texto.includes("cloud code") ||
-        texto.includes("cloudcode")
-    ) {
-        return "A integração com Cloud Code será a próxima etapa.";
-    }
-
-    if (
-        texto.includes("limpar memória") ||
-        texto.includes("limpar memoria")
-    ) {
-        memoriaLocal.nome = null;
-        limparMemoriaSessao();
-        return "Memória local apagada.";
-    }
-
-    return null;
-}
-
-function extrairTextoResposta(resposta) {
-    if (typeof resposta === "string") return resposta;
-    return resposta?.text || "Sem resposta.";
-}
-
-function respostaComErro(texto) {
-    const t = texto.toLowerCase();
-
-    return (
-        t.includes("erro") ||
-        t.includes("quota") ||
-        t.includes("429") ||
-        t.includes("too many requests") ||
-        t.includes("insufficient")
-    );
+        execFile(
+            "cmd",
+            ["/c", "code", "-r", encontrado],
+            () => {
+                resolve({
+                    ok: true,
+                    caminho: encontrado
+                });
+            }
+        );
+    });
 }
 
 async function responder(textoUsuario) {
-    adicionarNaSessao("Usuário", textoUsuario);
-
-    const local = respostaLocal(textoUsuario);
+    const local = processarIntentLocal(textoUsuario);
 
     if (local) {
-        adicionarNaSessao("ATLAS", local);
-        console.log(`🤖 ATLAS: ${local}\n`);
-        await falarTexto(local);
+        if (local.acao === "open_file") {
+            const resultado = await abrirNoVSCode(local.arquivo);
+
+            if (resultado.ok) {
+                const relativo = path.relative(process.cwd(), resultado.caminho);
+                const msg = `Arquivo aberto: ${relativo}.`;
+
+                console.log(`🤖 ATLAS: ${msg}\n`);
+                await falarTexto(msg);
+            } else {
+                const msg = "Arquivo não encontrado.";
+
+                console.log(`🤖 ATLAS: ${msg}\n`);
+                await falarTexto(msg);
+            }
+
+            return;
+        }
+
+        console.log(`🤖 ATLAS: ${local.resposta}\n`);
+        await falarTexto(local.resposta);
+
+        if (local.acao === "clear") {
+            limparMemoriaSessao();
+        }
+
+        if (local.acao === "sleep") {
+            return "__SLEEP__";
+        }
+
         return;
     }
 
-    const contexto = `
-MEMÓRIA PERMANENTE:
-${carregarMemoria()}
+    try {
+        const resposta = await askAI(
+            textoUsuario,
+            carregarMemoria(),
+            "auto",
+            false
+        );
 
-MEMÓRIA DA SESSÃO:
-${obterMemoriaSessao()}
+        const texto =
+            typeof resposta === "string"
+                ? resposta
+                : resposta?.text || "Sem resposta.";
 
-MEMÓRIA LOCAL:
-Nome do usuário: ${memoriaLocal.nome || "não informado"}
-`;
+        console.log(`🤖 ATLAS: ${texto}\n`);
+        await falarTexto(texto);
 
-    let resposta = await askAI(
-        textoUsuario,
-        contexto,
-        "auto",
-        false
-    );
+    } catch {
+        const fallback =
+            "Estou sem acesso às IAs externas agora, mas continuo funcionando localmente.";
 
-    let textoResposta = extrairTextoResposta(resposta);
-
-    if (respostaComErro(textoResposta)) {
-        textoResposta = "Estou sem acesso às IAs externas, mas continuo operacional localmente.";
+        console.log(`🤖 ATLAS: ${fallback}\n`);
+        await falarTexto(fallback);
     }
+}
 
-    adicionarNaSessao("ATLAS", textoResposta);
+async function modoConversaContinua() {
+    console.log("🟢 Modo conversa contínua ativado.\n");
 
-    console.log(`🤖 ATLAS: ${textoResposta}\n`);
-    await falarTexto(textoResposta);
+    while (true) {
+        console.log("🎤 Ouvindo você...\n");
+
+        const comando = await executarPython("scripts/atlas-mic.py");
+        const texto = extrairTexto(comando);
+
+        if (!texto) {
+            continue;
+        }
+
+        console.log(`🎤 Você disse: ${texto}\n`);
+
+        const resultado = await responder(texto);
+
+        if (resultado === "__SLEEP__") {
+            break;
+        }
+    }
 }
 
 async function modoWake() {
     while (true) {
-        console.log("\n👂 ATLAS ouvindo wake word...\n");
+        console.log("👂 Aguardando wake word...\n");
 
-        const saidaWake = await executarPython("scripts/atlas-wake.py");
+        const wake = await executarPython("scripts/atlas-wake.py");
 
-        if (!saidaWake.includes("WAKE_WORD") && !saidaWake.includes("COMMAND:")) {
+        if (!wake.includes("WAKE_WORD") && !wake.includes("COMMAND:")) {
             continue;
         }
 
-        const comandoDireto = extrairTextoMicrofone(saidaWake);
+        const comandoDireto = extrairTexto(wake);
 
-        if (comandoDireto && !comandoDireto.includes("WAKE_WORD")) {
-            console.log(`🎤 Você disse: atlas ${comandoDireto}\n`);
-            await responder(comandoDireto);
+        if (comandoDireto) {
+            const resultado = await responder(comandoDireto);
+
+            if (resultado === "__SLEEP__") {
+                continue;
+            }
+
+            await modoConversaContinua();
             continue;
         }
 
-        const confirmacao = "Sim, estou ouvindo.";
-
-        console.log(`🤖 ATLAS: ${confirmacao}\n`);
-        await falarTexto(confirmacao);
-
-        const saidaComando = await executarPython("scripts/atlas-mic.py");
-        const comando = extrairTextoMicrofone(saidaComando);
-
-        if (!comando) {
-            const erro = "Não entendi. Voltando ao modo de escuta.";
-            console.log(`🤖 ATLAS: ${erro}\n`);
-            await falarTexto(erro);
-            continue;
-        }
-
-        console.log(`🎤 Você disse: ${comando}\n`);
-
-        await responder(comando);
+        await falarTexto("Sim, estou ouvindo.");
+        await modoConversaContinua();
     }
 }
 
 function perguntar() {
     rl.question("🎤 Você: ", async (entrada) => {
-        const comando = entrada.trim().toLowerCase();
+        const cmd = entrada.trim().toLowerCase();
 
-        if (comando === "sair") {
-            await falarTexto("Encerrando sistema.");
-            rl.close();
+        if (cmd === "sair") {
             process.exit(0);
         }
 
-        if (comando === "/limpar") {
-            memoriaLocal.nome = null;
-            limparMemoriaSessao();
-
-            console.log("🧹 Memória apagada.\n");
-            await falarTexto("Memória apagada.");
-            return perguntar();
-        }
-
-        if (comando === "/wake") {
-            console.log("🚀 Wake mode ativado.\n");
+        if (cmd === "/wake") {
             await modoWake();
             return;
+        }
+
+        if (cmd === "/limpar") {
+            limparMemoriaSessao();
+            console.log("Memória limpa.\n");
+            return perguntar();
         }
 
         await responder(entrada);
@@ -318,23 +346,11 @@ function perguntar() {
 }
 
 console.log(`
-=================================
-ATLAS TERMINAL WAKE MODE ONLINE
-=================================
+ATLAS ONLINE
 
-Comandos:
-/wake      -> ativar wake mode
-/limpar    -> apagar memória
-sair       -> fechar
-
-Fale:
-"atlas qual seu nome"
-
-ou fale:
-"atlas"
-e depois o comando.
-
-=================================
+/wake
+/limpar
+sair
 `);
 
 perguntar();
