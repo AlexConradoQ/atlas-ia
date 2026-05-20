@@ -1,36 +1,52 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
 import { askOpenAI } from "./openai.js";
+import { speak } from "./voice.js";
 
 dotenv.config();
 
 const gemini = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-export async function askAI(prompt, memory = "", provider = "auto") {
+export async function askAI(prompt, memory = "", provider = "auto", voiceEnabled = false) {
   try {
+    let answer = "";
+
     if (provider === "openai") {
-      return await askOpenAI(prompt, memory);
+      answer = await askOpenAI(prompt, memory);
+    } else if (provider === "gemini") {
+      answer = await askGemini(prompt, memory);
+    } else {
+      const lowerPrompt = prompt.toLowerCase();
+
+      if (
+        lowerPrompt.includes("arquitetura") ||
+        lowerPrompt.includes("refatorar") ||
+        lowerPrompt.includes("debug") ||
+        lowerPrompt.includes("corrigir código")
+      ) {
+        answer = await askOpenAI(prompt, memory);
+      } else {
+        answer = await askGemini(prompt, memory);
+      }
     }
 
-    if (provider === "gemini") {
-      return await askGemini(prompt, memory);
+    let audioPath = null;
+
+    if (voiceEnabled && answer && !answer.startsWith("Erro")) {
+      audioPath = await speak(answer);
     }
 
-    // AUTO MODE
-    if (
-      prompt.toLowerCase().includes("arquitetura") ||
-      prompt.toLowerCase().includes("refatorar") ||
-      prompt.toLowerCase().includes("debug") ||
-      prompt.toLowerCase().includes("corrigir código")
-    ) {
-      return await askOpenAI(prompt, memory);
-    }
-
-    return await askGemini(prompt, memory);
-
+    return {
+      text: answer,
+      audio: audioPath,
+    };
   } catch (error) {
     console.error("Erro AI:", error);
-    return `Erro AI: ${error.message}`;
+
+    return {
+      text: `Erro AI: ${error.message}`,
+      audio: null,
+    };
   }
 }
 
@@ -52,6 +68,8 @@ Seu papel:
 - Responder em português brasileiro
 - Ajudar com código e projetos
 - Sempre entregar código completo quando solicitado
+- Ter uma personalidade feminina, direta, inteligente e levemente futurista
+- Evitar respostas longas demais quando o usuário pedir algo simples
 
 MEMÓRIA:
 ${memory}
@@ -61,7 +79,6 @@ ${prompt}
     `);
 
     return result.response.text();
-
   } catch (error) {
     console.error("Erro Gemini:", error);
     return `Erro Gemini: ${error.message}`;

@@ -12,6 +12,8 @@ const SpeechRecognition =
 
 let recognition = null;
 let ouvindo = false;
+let audioAtual = null;
+let audioLiberado = false;
 
 function atualizarRelogio() {
     const agora = new Date();
@@ -21,27 +23,25 @@ function atualizarRelogio() {
 setInterval(atualizarRelogio, 1000);
 atualizarRelogio();
 
-function limparTextoParaVoz(texto) {
-    return texto
-        .replace(/[#*_`>\-\[\]\(\)]/g, "")
-        .replace(/\n/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
+function liberarAudio() {
+    audioLiberado = true;
+
+    if (voiceStatus) {
+        voiceStatus.textContent = "● Audio ready.";
+    }
+
+    document.removeEventListener("click", liberarAudio);
+    document.removeEventListener("keydown", liberarAudio);
 }
 
-function falarTexto(texto) {
-    window.speechSynthesis.cancel();
+document.addEventListener("click", liberarAudio);
+document.addEventListener("keydown", liberarAudio);
 
-    const voz = new SpeechSynthesisUtterance(
-        limparTextoParaVoz(texto)
-    );
-
-    voz.lang = "pt-BR";
-    voz.rate = 1;
-    voz.pitch = 1;
-    voz.volume = 1;
-
-    window.speechSynthesis.speak(voz);
+function limparTextoParaHtml(texto) {
+    return String(texto)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
 }
 
 function adicionarMensagem(texto, tipo) {
@@ -49,20 +49,57 @@ function adicionarMensagem(texto, tipo) {
 
     div.classList.add("message", tipo);
 
-    if (tipo === "user") {
-        div.innerHTML = `
-            <strong>YOU</strong>
-            <p>${texto}</p>
-        `;
-    } else {
-        div.innerHTML = `
-            <strong>ATLAS</strong>
-            <p>${texto}</p>
-        `;
-    }
+    const autor = tipo === "user" ? "YOU" : "ATLAS";
+
+    div.innerHTML = `
+        <strong>${autor}</strong>
+        <p>${limparTextoParaHtml(texto)}</p>
+    `;
 
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
+
+    return div;
+}
+
+function tocarAudioPremium(audioUrl) {
+    if (!audioUrl) return;
+
+    if (audioAtual) {
+        audioAtual.pause();
+        audioAtual.currentTime = 0;
+    }
+
+    audioAtual = new Audio();
+    audioAtual.src = audioUrl;
+    audioAtual.volume = 1;
+    audioAtual.autoplay = true;
+    audioAtual.preload = "auto";
+
+    const playPromise = audioAtual.play();
+
+    if (playPromise !== undefined) {
+        playPromise
+            .then(() => {
+                if (voiceStatus) {
+                    voiceStatus.textContent = "● ATLAS speaking...";
+                }
+            })
+            .catch((erro) => {
+                console.error("Autoplay bloqueado:", erro);
+
+                if (voiceStatus) {
+                    voiceStatus.textContent =
+                        "● Clique na tela e envie de novo para liberar a voz.";
+                }
+            });
+    }
+
+    audioAtual.onended = () => {
+        if (voiceStatus) {
+            voiceStatus.textContent = "● Waiting for command...";
+        }
+    };
 }
 
 async function enviarMensagem(mensagem, responderComVoz = true) {
@@ -70,8 +107,7 @@ async function enviarMensagem(mensagem, responderComVoz = true) {
 
     adicionarMensagem(mensagem, "user");
 
-    adicionarMensagem("Processando comando...", "atlas");
-    const pensando = messages.lastChild;
+    const pensando = adicionarMensagem("Processando comando...", "atlas");
 
     try {
         const resposta = await fetch("http://localhost:3000/chat", {
@@ -79,18 +115,26 @@ async function enviarMensagem(mensagem, responderComVoz = true) {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({ mensagem })
+            body: JSON.stringify({
+                mensagem,
+                voice: responderComVoz
+            })
         });
 
         const dados = await resposta.json();
 
+        const textoResposta =
+            dados.resposta ||
+            dados.text ||
+            "Sem resposta da ATLAS.";
+
         pensando.innerHTML = `
             <strong>ATLAS</strong>
-            <p>${dados.resposta}</p>
+            <p>${limparTextoParaHtml(textoResposta)}</p>
         `;
 
-        if (responderComVoz) {
-            falarTexto(dados.resposta);
+        if (responderComVoz && dados.audio) {
+            tocarAudioPremium(dados.audio);
         }
 
     } catch (erro) {
@@ -101,8 +145,8 @@ async function enviarMensagem(mensagem, responderComVoz = true) {
             <p>${textoErro}</p>
         `;
 
-        if (responderComVoz) {
-            falarTexto(textoErro);
+        if (voiceStatus) {
+            voiceStatus.textContent = "● Erro de conexão.";
         }
     }
 }
@@ -160,13 +204,16 @@ if (SpeechRecognition && voiceBtn) {
     recognition = new SpeechRecognition();
 
     recognition.lang = "pt-BR";
-    recognition.continuous = true;
+    recognition.continuous = false;
     recognition.interimResults = true;
 
     recognition.onstart = () => {
         ouvindo = true;
         voiceBtn.textContent = "OUVINDO...";
-        voiceStatus.textContent = "● Listening...";
+
+        if (voiceStatus) {
+            voiceStatus.textContent = "● Listening...";
+        }
     };
 
     recognition.onresult = (event) => {
@@ -182,7 +229,6 @@ if (SpeechRecognition && voiceBtn) {
             const texto = textoFinal.trim();
 
             input.value = texto;
-
             recognition.stop();
 
             enviarMensagem(texto, true);
@@ -193,27 +239,44 @@ if (SpeechRecognition && voiceBtn) {
         voiceBtn.textContent = "VOICE";
 
         if (event.error === "no-speech") {
-            voiceStatus.textContent = "● Nenhuma fala detectada. Tente novamente.";
+            if (voiceStatus) {
+                voiceStatus.textContent =
+                    "● Nenhuma fala detectada. Tente novamente.";
+            }
+
             return;
         }
 
-        voiceStatus.textContent = "● Voice error";
-        falarTexto("Não consegui capturar sua voz.");
+        if (voiceStatus) {
+            voiceStatus.textContent = "● Voice error";
+        }
     };
 
     recognition.onend = () => {
         ouvindo = false;
         voiceBtn.textContent = "VOICE";
-        voiceStatus.textContent = "● Waiting for command...";
+
+        if (
+            voiceStatus &&
+            voiceStatus.textContent === "● Listening..."
+        ) {
+            voiceStatus.textContent = "● Waiting for command...";
+        }
     };
 
     voiceBtn.addEventListener("click", () => {
+        liberarAudio();
+
         if (ouvindo) {
             recognition.stop();
             return;
         }
 
-        window.speechSynthesis.cancel();
+        if (audioAtual) {
+            audioAtual.pause();
+            audioAtual.currentTime = 0;
+        }
+
         recognition.start();
     });
 
