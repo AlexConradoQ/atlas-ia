@@ -47,23 +47,12 @@ function carregarNome() {
 
         const match = conteudo.match(/Nome:\s*(.+)/i);
 
-        if (match) {
-            return match[1].trim();
-        }
+        if (match) return match[1].trim();
 
         return null;
-
     } catch {
         return null;
     }
-}
-
-function normalizarArquivo(texto) {
-    return texto
-        .replace(/\bbarra\b/g, "/")
-        .replace(/\bponto\b/g, ".")
-        .replace(/\s+/g, " ")
-        .trim();
 }
 
 export const memoriaLocal = {
@@ -75,9 +64,21 @@ export const memoriaLocal = {
 function normalizar(texto) {
     return texto
         .toLowerCase()
-        .trim()
         .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "");
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\baí\b/g, "ai")
+        .replace(/\bahi\b/g, "ai")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function limparArquivoFalado(texto) {
+    return normalizar(texto)
+        .replace(/\bbarra\b/g, "/")
+        .replace(/\bponto\b/g, ".")
+        .replace(/\btraco\b/g, "-")
+        .replace(/\bhifen\b/g, "-")
+        .trim();
 }
 
 function contemAlgum(texto, lista) {
@@ -85,18 +86,14 @@ function contemAlgum(texto, lista) {
 }
 
 export function processarIntentLocal(textoOriginal) {
-    if (!textoOriginal) {
-        return null;
-    }
+    if (!textoOriginal) return null;
 
     const texto = normalizar(textoOriginal);
 
-    // ABRIR ARQUIVO
-
-    const matchAbrir = texto.match(/abrir\s+(.+)/);
-
-    if (matchAbrir && matchAbrir[1]) {
-        const arquivo = normalizarArquivo(matchAbrir[1]);
+    if (texto.startsWith("abrir ")) {
+        const arquivo = limparArquivoFalado(
+            texto.replace(/^abrir\s+/, "")
+        );
 
         return {
             resposta: `Abrindo ${arquivo}.`,
@@ -105,7 +102,22 @@ export function processarIntentLocal(textoOriginal) {
         };
     }
 
-    // IDENTIDADE
+    if (
+        texto.startsWith("ler ") ||
+        texto.startsWith("le ")
+    ) {
+        const arquivo = limparArquivoFalado(
+            texto
+                .replace(/^ler\s+/, "")
+                .replace(/^le\s+/, "")
+        );
+
+        return {
+            resposta: `Lendo ${arquivo}.`,
+            acao: "read_file",
+            arquivo
+        };
+    }
 
     if (
         contemAlgum(texto, [
@@ -120,16 +132,12 @@ export function processarIntentLocal(textoOriginal) {
         };
     }
 
-    // STATUS
-
-    if (contemAlgum(texto, ["status"])) {
+    if (texto.includes("status")) {
         return {
             resposta: "Sistema ATLAS operacional.",
             acao: null
         };
     }
-
-    // PROJETO
 
     if (
         contemAlgum(texto, [
@@ -143,11 +151,10 @@ export function processarIntentLocal(textoOriginal) {
         };
     }
 
-    // NOME USUÁRIO
-
     if (
         contemAlgum(texto, [
             "qual meu nome",
+            "qual e meu nome",
             "qual e o meu nome",
             "como eu me chamo",
             "quem sou eu"
@@ -166,13 +173,11 @@ export function processarIntentLocal(textoOriginal) {
         };
     }
 
-    // APRENDER NOME
-
     const matchNome = texto.match(
-        /meu nome (?:e|é)?\s+(.+)/
+        /meu nome (?:e)?\s+(.+)/
     );
 
-    if (matchNome && matchNome[1]) {
+    if (matchNome) {
         const nome = matchNome[1]
             .trim()
             .split(" ")
@@ -192,8 +197,6 @@ export function processarIntentLocal(textoOriginal) {
         };
     }
 
-    // DORMIR
-
     if (
         contemAlgum(texto, [
             "dormir",
@@ -205,8 +208,6 @@ export function processarIntentLocal(textoOriginal) {
             acao: "sleep"
         };
     }
-
-    // LIMPAR
 
     if (
         contemAlgum(texto, [

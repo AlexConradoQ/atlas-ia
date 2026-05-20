@@ -106,7 +106,6 @@ function normalizarBusca(texto) {
         .replace(/\bponto\b/g, " ")
         .replace(/\btraco\b/g, " ")
         .replace(/\bhifen\b/g, " ")
-        .replace(/\bjs\b/g, " js ")
         .replace(/\//g, " ")
         .replace(/\\/g, " ")
         .replace(/\./g, " ")
@@ -188,24 +187,115 @@ function abrirNoVSCode(arquivoFalado) {
         const encontrado = localizarArquivo(arquivoFalado);
 
         if (!encontrado) {
-            resolve({
-                ok: false,
-                caminho: null
-            });
+            resolve({ ok: false, caminho: null });
             return;
         }
 
-        execFile(
-            "cmd",
-            ["/c", "code", "-r", encontrado],
-            () => {
-                resolve({
-                    ok: true,
-                    caminho: encontrado
-                });
-            }
-        );
+        execFile("cmd", ["/c", "code", "-r", encontrado], () => {
+            resolve({ ok: true, caminho: encontrado });
+        });
     });
+}
+
+function lerArquivoProjeto(arquivoFalado) {
+    const encontrado = localizarArquivo(arquivoFalado);
+
+    if (!encontrado) return null;
+
+    const conteudo = fs.readFileSync(encontrado, "utf8");
+
+    return {
+        caminho: encontrado,
+        conteudo
+    };
+}
+
+function resumoLocalArquivo(info) {
+    const relativo = path.relative(process.cwd(), info.caminho);
+    const linhas = info.conteudo.split("\n");
+    const totalLinhas = linhas.length;
+
+    const imports = linhas
+        .filter(linha =>
+            linha.trim().startsWith("import ") ||
+            linha.trim().startsWith("const ") && linha.includes("require(")
+        )
+        .slice(0, 8)
+        .map(linha => linha.trim());
+
+    const funcoes = linhas
+        .filter(linha =>
+            linha.includes("function ") ||
+            linha.includes("export function ") ||
+            linha.includes("async function ") ||
+            linha.includes("export async function ")
+        )
+        .slice(0, 10)
+        .map(linha => linha.trim());
+
+    let resumo = `Arquivo ${relativo}. Ele tem aproximadamente ${totalLinhas} linhas.`;
+
+    if (imports.length > 0) {
+        resumo += ` Usa dependências ou módulos como: ${imports.join(" | ")}.`;
+    }
+
+    if (funcoes.length > 0) {
+        resumo += ` Principais funções detectadas: ${funcoes.join(" | ")}.`;
+    }
+
+    resumo += " Esse foi um resumo local, sem usar IA externa.";
+
+    return resumo;
+}
+
+function respostaTemErroIA(texto) {
+    const t = String(texto).toLowerCase();
+
+    return (
+        t.includes("erro openai") ||
+        t.includes("erro gemini") ||
+        t.includes("429") ||
+        t.includes("quota") ||
+        t.includes("insufficient_quota") ||
+        t.includes("too many requests") ||
+        t.includes("limite")
+    );
+}
+
+async function resumirArquivo(info) {
+    const relativo = path.relative(process.cwd(), info.caminho);
+    const trecho = info.conteudo.slice(0, 6000);
+
+    try {
+        const resposta = await askAI(
+            `
+Analise esse arquivo do projeto e explique resumidamente o que ele faz.
+
+Arquivo:
+${relativo}
+
+Conteúdo:
+${trecho}
+`,
+            carregarMemoria(),
+            "auto",
+            false
+        );
+
+        const texto =
+            typeof resposta === "string"
+                ? resposta
+                : resposta?.text || "";
+
+        if (!texto || respostaTemErroIA(texto)) {
+            return resumoLocalArquivo(info);
+        }
+
+        return texto;
+
+    } catch {
+        return resumoLocalArquivo(info);
+    }
 }
 
 async function responder(textoUsuario) {
@@ -227,6 +317,25 @@ async function responder(textoUsuario) {
                 console.log(`🤖 ATLAS: ${msg}\n`);
                 await falarTexto(msg);
             }
+
+            return;
+        }
+
+        if (local.acao === "read_file") {
+            const info = lerArquivoProjeto(local.arquivo);
+
+            if (!info) {
+                const msg = "Arquivo não encontrado.";
+
+                console.log(`🤖 ATLAS: ${msg}\n`);
+                await falarTexto(msg);
+                return;
+            }
+
+            const resumo = await resumirArquivo(info);
+
+            console.log(`🤖 ATLAS: ${resumo}\n`);
+            await falarTexto(resumo);
 
             return;
         }
@@ -258,8 +367,12 @@ async function responder(textoUsuario) {
                 ? resposta
                 : resposta?.text || "Sem resposta.";
 
-        console.log(`🤖 ATLAS: ${texto}\n`);
-        await falarTexto(texto);
+        const respostaFinal = respostaTemErroIA(texto)
+            ? "Estou sem acesso às IAs externas agora, mas continuo funcionando localmente."
+            : texto;
+
+        console.log(`🤖 ATLAS: ${respostaFinal}\n`);
+        await falarTexto(respostaFinal);
 
     } catch {
         const fallback =
@@ -279,9 +392,7 @@ async function modoConversaContinua() {
         const comando = await executarPython("scripts/atlas-mic.py");
         const texto = extrairTexto(comando);
 
-        if (!texto) {
-            continue;
-        }
+        if (!texto) continue;
 
         console.log(`🎤 Você disse: ${texto}\n`);
 
@@ -299,7 +410,10 @@ async function modoWake() {
 
         const wake = await executarPython("scripts/atlas-wake.py");
 
-        if (!wake.includes("WAKE_WORD") && !wake.includes("COMMAND:")) {
+        if (
+            !wake.includes("WAKE_WORD") &&
+            !wake.includes("COMMAND:")
+        ) {
             continue;
         }
 
