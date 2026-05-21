@@ -1,55 +1,28 @@
 import fs from "fs";
 import path from "path";
 
-const caminhoPerfil = path.join(
-    process.cwd(),
-    "01 - Memória",
-    "perfil-usuario.md"
-);
+const caminhoPerfil = path.join(process.cwd(), "01 - Memória", "perfil-usuario.md");
 
 function garantirPerfil() {
     const pasta = path.dirname(caminhoPerfil);
-
-    if (!fs.existsSync(pasta)) {
-        fs.mkdirSync(pasta, { recursive: true });
-    }
+    if (!fs.existsSync(pasta)) fs.mkdirSync(pasta, { recursive: true });
 
     if (!fs.existsSync(caminhoPerfil)) {
-        fs.writeFileSync(
-            caminhoPerfil,
-            "# Perfil do Usuário\n\n",
-            "utf8"
-        );
+        fs.writeFileSync(caminhoPerfil, "# Perfil do Usuário\n\n", "utf8");
     }
 }
 
 function salvarNome(nome) {
     garantirPerfil();
-
-    fs.writeFileSync(
-        caminhoPerfil,
-        `# Perfil do Usuário
-
-Nome: ${nome}
-`,
-        "utf8"
-    );
+    fs.writeFileSync(caminhoPerfil, `# Perfil do Usuário\n\nNome: ${nome}\n`, "utf8");
 }
 
 function carregarNome() {
     try {
         garantirPerfil();
-
-        const conteudo = fs.readFileSync(
-            caminhoPerfil,
-            "utf8"
-        );
-
+        const conteudo = fs.readFileSync(caminhoPerfil, "utf8");
         const match = conteudo.match(/Nome:\s*(.+)/i);
-
-        if (match) return match[1].trim();
-
-        return null;
+        return match ? match[1].trim() : null;
     } catch {
         return null;
     }
@@ -67,12 +40,11 @@ function normalizar(texto) {
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .replace(/\baí\b/g, "ai")
-        .replace(/\bahi\b/g, "ai")
         .replace(/\s+/g, " ")
         .trim();
 }
 
-function limparArquivoFalado(texto) {
+function limparAlvoFalado(texto) {
     return normalizar(texto)
         .replace(/\bbarra\b/g, "/")
         .replace(/\bponto\b/g, ".")
@@ -90,65 +62,75 @@ export function processarIntentLocal(textoOriginal) {
 
     const texto = normalizar(textoOriginal);
 
-    if (texto.startsWith("abrir ")) {
-        const arquivo = limparArquivoFalado(
-            texto.replace(/^abrir\s+/, "")
-        );
+    if (texto.startsWith("abrir pasta ")) {
+        const alvo = limparAlvoFalado(texto.replace(/^abrir pasta\s+/, ""));
+        return { resposta: `Abrindo pasta ${alvo}.`, acao: "open_folder", alvo };
+    }
 
-        return {
-            resposta: `Abrindo ${arquivo}.`,
-            acao: "open_file",
-            arquivo
-        };
+    if (texto.startsWith("abrir ")) {
+        const alvo = limparAlvoFalado(texto.replace(/^abrir\s+/, ""));
+        return { resposta: `Abrindo ${alvo}.`, acao: "open_file", alvo };
+    }
+
+    if (texto.startsWith("editar ")) {
+        const alvo = limparAlvoFalado(texto.replace(/^editar\s+/, ""));
+        return { resposta: `Abrindo ${alvo} para edição.`, acao: "open_file", alvo };
+    }
+
+    if (texto.startsWith("ler ") || texto.startsWith("le ")) {
+        const alvo = limparAlvoFalado(
+            texto.replace(/^ler\s+/, "").replace(/^le\s+/, "")
+        );
+        return { resposta: `Lendo ${alvo}.`, acao: "read_file", alvo };
+    }
+
+    if (texto.startsWith("buscar ") || texto.startsWith("procurar ")) {
+        const termo = limparAlvoFalado(
+            texto.replace(/^buscar\s+/, "").replace(/^procurar\s+/, "")
+        );
+        return { resposta: `Buscando ${termo}.`, acao: "search_project", termo };
     }
 
     if (
-        texto.startsWith("ler ") ||
-        texto.startsWith("le ")
+        contemAlgum(texto, [
+            "listar projeto",
+            "listar projetos",
+            "mostrar projeto",
+            "mostrar projetos",
+            "estrutura do projeto",
+            "ver projeto",
+            "ver projetos",
+            "visitar projeto",
+            "visitar projetos"
+        ])
     ) {
-        const arquivo = limparArquivoFalado(
-            texto
-                .replace(/^ler\s+/, "")
-                .replace(/^le\s+/, "")
-        );
-
-        return {
-            resposta: `Lendo ${arquivo}.`,
-            acao: "read_file",
-            arquivo
-        };
+        return { resposta: "Listando estrutura do projeto.", acao: "list_project" };
     }
 
     if (
         contemAlgum(texto, [
             "qual seu nome",
+            "qual e seu nome",
+            "qual e o seu nome",
             "quem e voce",
             "como voce se chama"
         ])
     ) {
-        return {
-            resposta: `Eu sou a ${memoriaLocal.nomeIA}.`,
-            acao: null
-        };
+        return { resposta: `Eu sou a ${memoriaLocal.nomeIA}.`, acao: null };
     }
 
     if (texto.includes("status")) {
-        return {
-            resposta: "Sistema ATLAS operacional.",
-            acao: null
-        };
+        return { resposta: "Sistema ATLAS operacional.", acao: null };
     }
 
     if (
         contemAlgum(texto, [
             "qual o projeto",
+            "que projeto e esse",
             "sobre o que estamos trabalhando"
         ])
     ) {
-        return {
-            resposta: `Estamos trabalhando no ${memoriaLocal.projeto}.`,
-            acao: null
-        };
+        return { resposta: `Estamos trabalhando no ${memoriaLocal.projeto}.`, acao: null };
     }
 
     if (
@@ -160,68 +142,37 @@ export function processarIntentLocal(textoOriginal) {
             "quem sou eu"
         ])
     ) {
-        if (memoriaLocal.nomeUsuario) {
-            return {
-                resposta: `Seu nome é ${memoriaLocal.nomeUsuario}.`,
-                acao: null
-            };
-        }
-
         return {
-            resposta: "Ainda não sei seu nome.",
+            resposta: memoriaLocal.nomeUsuario
+                ? `Seu nome é ${memoriaLocal.nomeUsuario}.`
+                : "Ainda não sei seu nome.",
             acao: null
         };
     }
 
-    const matchNome = texto.match(
-        /meu nome (?:e)?\s+(.+)/
-    );
+    const matchNome = texto.match(/meu nome (?:e)?\s+(.+)/);
 
     if (matchNome) {
         const nome = matchNome[1]
             .trim()
             .split(" ")
-            .map(
-                p =>
-                    p.charAt(0).toUpperCase() +
-                    p.slice(1)
-            )
+            .map(p => p.charAt(0).toUpperCase() + p.slice(1))
             .join(" ");
 
         memoriaLocal.nomeUsuario = nome;
         salvarNome(nome);
 
-        return {
-            resposta: `Entendido. Vou te chamar de ${nome}.`,
-            acao: null
-        };
+        return { resposta: `Entendido. Vou te chamar de ${nome}.`, acao: null };
     }
 
-    if (
-        contemAlgum(texto, [
-            "dormir",
-            "parar"
-        ])
-    ) {
-        return {
-            resposta: "Entrando em espera.",
-            acao: "sleep"
-        };
+    if (contemAlgum(texto, ["dormir", "parar", "encerrar"])) {
+        return { resposta: "Entrando em espera.", acao: "sleep" };
     }
 
-    if (
-        contemAlgum(texto, [
-            "limpar memoria",
-            "apagar memoria"
-        ])
-    ) {
+    if (contemAlgum(texto, ["limpar memoria", "apagar memoria"])) {
         memoriaLocal.nomeUsuario = null;
         salvarNome("");
-
-        return {
-            resposta: "Memória apagada.",
-            acao: "clear"
-        };
+        return { resposta: "Memória apagada.", acao: "clear" };
     }
 
     return null;
