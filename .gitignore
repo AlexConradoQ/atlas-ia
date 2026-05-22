@@ -40,3 +40,8 @@ npm-debug.log*
 # Sistema
 .DS_Store
 Thumbs.db
+
+# Arquivos temporários / showcase cleanup
+atlas.mp3
+atlas2.mp3
+teste-atlas.js
