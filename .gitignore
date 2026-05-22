@@ -1,7 +1,42 @@
-.obsidian/workspace.json
-.obsidian/workspace-mobile.json
-.obsidian/cache
+# Dependências
+node_modules/
+vscode-extension/node_modules/
+
+# Variáveis de ambiente
+.env
+.env.local
+.env.*
+
+# Obsidian / memória pessoal
+.obsidian/
+00 - Sistema/
+01 - Memória/
+02 - Projetos/
+03 - Conhecimento/
+04 - Prompts/
+05 - Logs/
+
+# Backups / snapshots
+.atlas-backups/
+.atlas-snapshots/
+snapshot-cli-*/
+backup/
+backups/
+
+# Áudios temporários
+audio/
+*.mp3
+*.wav
+*.ogg
+*.webm
+
+# Logs
+*.log
+npm-debug.log*
+
+# VS Code configs locais
+.vscode/
+
+# Sistema
 .DS_Store
 Thumbs.db
-.env
-node_modules/

@@ -1,1 +1,0 @@
-console.log("Fase 2B funcionando");

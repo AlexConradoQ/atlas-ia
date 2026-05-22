@@ -1,1 +1,0 @@
-console.log("ATLAS 2B ONLINE");
