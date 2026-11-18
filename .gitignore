@@ -45,3 +45,7 @@ Thumbs.db
 atlas.mp3
 atlas2.mp3
 teste-atlas.js
+# Segredos locais do agente de cortes
+secrets/
+agents/clip-agent/config.json
+data/clip-agent/
