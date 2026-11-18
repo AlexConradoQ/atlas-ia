@@ -158,6 +158,16 @@ async function processDue() {
   const queue = readQueue();
   let changed = false;
   for (const item of queue) {
+    // Migra a fila criada pela versão inicial do agente.
+    if (item.scheduledAt && !item.publishAt) {
+      const [day, time] = item.scheduledAt.split("T");
+      item.publishAt = parseLocalSlot(day, time.slice(0, 5)).toISOString();
+      changed = true;
+    }
+    if (item.platforms?.youtube === "not-configured") {
+      item.platforms.youtube = "pending";
+      changed = true;
+    }
     if (item.status === "scheduled" && item.platforms?.youtube === "pending" && fs.existsSync(item.file)) {
       try { await publishYouTube(item, youtube); changed = true; }
       catch (e) {
