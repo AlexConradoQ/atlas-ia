@@ -1,0 +1,16 @@
+{
+  "watchDirectory": "./clips/pendentes",
+  "processedDirectory": "./clips/processados",
+  "errorDirectory": "./clips/erros",
+  "queueFile": "./data/clip-agent/queue.json",
+  "timezone": "America/Sao_Paulo",
+  "videosPerDay": 10,
+  "schedule": ["08:00", "09:30", "11:00", "12:30", "14:00", "15:30", "17:00", "18:30", "20:00", "21:30"],
+  "platforms": {
+    "youtube": { "enabled": false, "mode": "official-api" },
+    "tiktok": { "enabled": false, "mode": "official-api" }
+  },
+  "dryRun": true,
+  "scanIntervalMs": 10000,
+  "allowedExtensions": [".mp4", ".mov", ".m4v", ".webm"]
+}
